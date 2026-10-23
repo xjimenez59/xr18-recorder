@@ -15,11 +15,12 @@ if grep -q '^127\.0\.1\.1' /etc/hosts; then sed -i "s/^127\.0\.1\.1.*/127.0.1.1 
 else echo "127.0.1.1 $HOST_NAME" >> /etc/hosts; fi
 systemctl enable --now avahi-daemon
 
-mkdir -p /mnt/recordings
+install -d -o "$USER_NAME" /var/lib/xr18rec /var/lib/xr18rec/recordings  # carte SD (défaut) + état
+mkdir -p /mnt/usb  # point de montage conseillé pour le disque USB (voir docs/disque-et-formats.md)
 [ -f /etc/xr18rec.json ] || install -m 644 "$REPO/config/xr18rec.json" /etc/xr18rec.json
 
 sed "s|@REPO@|$REPO|g; s|@USER@|$USER_NAME|g" "$REPO/scripts/xr18rec.service" > /etc/systemd/system/xr18rec.service
 systemctl daemon-reload
-echo "Installé. Monter le disque sur /mnt/recordings (voir docs/disque-et-formats.md), adapter /etc/xr18rec.json,"
+echo "Installé. Monter le disque USB (ex. /mnt/usb, voir docs/disque-et-formats.md ; il apparaît dans l'interface), adapter /etc/xr18rec.json,"
 echo "lancer scripts/probe-xr18.sh, puis : sudo systemctl enable --now xr18rec"
 echo "Nom d'hôte : $HOST_NAME (http://$HOST_NAME.local:8080 ; redémarrer pour que le routeur le voie)"

@@ -25,6 +25,7 @@
   ul { list-style:none; padding:0; margin:8px 0 0; }
   li { padding:6px 0; border-top:1px solid #8883; display:flex; justify-content:space-between; gap:8px; }
   a { color:var(--accent); }
+  select { flex:1; padding:12px; border-radius:8px; border:1px solid #8884; background:var(--card); color:inherit; font-size:1rem; }
   details summary { cursor:pointer; padding:4px 0; }
 </style>
 </head>
@@ -46,6 +47,15 @@
     <button id="stop" class="stop" disabled>Arrêter</button>
   </div>
   <ul id="files"></ul>
+</div>
+
+<div class="card">
+  <b>Emplacement des enregistrements</b>
+  <div class="row" style="margin-top:8px">
+    <select id="storage"></select>
+  </div>
+  <div class="muted" id="storageinfo"></div>
+  <div class="err" id="storageerr"></div>
 </div>
 
 <div class="card">
@@ -105,7 +115,7 @@ async function loadSessions() {
     if (!list.length) { box.textContent = 'Aucune session.'; return; }
     for (const s of list) {
       const d = document.createElement('details');
-      const sum = document.createElement('summary'); sum.textContent = s.name; d.append(sum);
+      const sum = document.createElement('summary'); sum.textContent = s.name + (s.location ? '  ·  ' + s.location : ''); d.append(sum);
       const ul = document.createElement('ul');
       for (const f of s.files) {
         const li = document.createElement('li');
@@ -118,16 +128,46 @@ async function loadSessions() {
   } catch (e) { $('sessions').textContent = e.message; }
 }
 
+const WARN_FS = {vfat:'FAT32 : fichiers limités à 4 Gio', exfat:'exFAT : à éviter sur Pi (lent)', ntfs:'NTFS : lent sur Pi 2', fuseblk:'NTFS/exFAT via FUSE : lent sur Pi 2'};
+let storageData = null;
+async function loadStorage() {
+  try {
+    const d = await api('/api/storage'); storageData = d;
+    const sel = $('storage');
+    if (document.activeElement !== sel) {
+      sel.replaceChildren();
+      for (const o of d.options) {
+        const opt = document.createElement('option');
+        opt.value = o.path; opt.selected = o.active;
+        opt.textContent = `${o.kind === 'sd' ? 'Carte SD' : 'Disque USB'} — ${o.label} · ${o.free_gb} Gio libres sur ${o.total_gb}` + (o.writable ? '' : ' · NON INSCRIPTIBLE');
+        sel.append(opt);
+      }
+    }
+    sel.disabled = d.recording;
+    const act = d.options.find(o => o.active);
+    const warn = act && WARN_FS[act.fstype] ? ' · ' + WARN_FS[act.fstype] : '';
+    $('storageinfo').textContent = act ? `${act.path} (${act.fstype || '?'})${warn}` : d.active;
+    if (!$('storageerr').dataset.sticky) $('storageerr').textContent = d.notice || '';
+  } catch (e) { $('storageerr').textContent = e.message; }
+}
+$('storage').onchange = async () => {
+  $('storageerr').dataset.sticky = '';
+  try { await api('/api/storage', {path: $('storage').value}); $('storageerr').textContent = ''; }
+  catch (e) { $('storageerr').textContent = e.message; $('storageerr').dataset.sticky = '1'; }
+  $('storage').blur(); await loadStorage(); loadSessions();
+};
+
 async function act(path, body) {
   busy = true; $('error').textContent = '';
   try { await api(path, body); } catch (e) { $('error').textContent = e.message; }
-  busy = false; await refresh(); loadSessions();
+  busy = false; await refresh(); loadSessions(); loadStorage();
 }
 $('start').onclick = () => act('/api/start', {name: $('name').value});
 $('stop').onclick = () => act('/api/stop', {});
 $('mixlink').textContent = location.origin + '/mix';
-refresh(); loadSessions();
+refresh(); loadSessions(); loadStorage();
 setInterval(refresh, 1000);
+setInterval(loadStorage, 5000);
 setInterval(loadSessions, 15000);
 </script>
 </body>

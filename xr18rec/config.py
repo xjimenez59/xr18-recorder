@@ -18,7 +18,11 @@ class Config:
     channels: int = 18  # 16 entrées + mix général (stéréo) = 18 voies USB
     rate: int = 48000  # 44100 ou 48000
     format: str = "S32_LE"  # ou S24_3LE : à confirmer avec les paramètres matériels de l'XR18
-    output_dir: str = "/mnt/recordings"
+    # Emplacement par défaut (carte SD). Les disques USB montés sont proposés en plus (usb_auto)
+    # et le choix se fait dans l'interface ; il est mémorisé dans state_file.
+    output_dir: str = "/var/lib/xr18rec/recordings"
+    usb_auto: bool = True
+    state_file: str = "/var/lib/xr18rec/state.json"
     segment_seconds: int = 900  # un fichier toutes les 15 min (reste < 4 Gio)
     min_free_gb: float = 2.0  # refuse de démarrer sous ce seuil, arrête si le seuil est franchi
     arecord_bin: str = "arecord"

@@ -88,12 +88,15 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
                 return self._mix_get(path[len("/api/mix/"):])
             if path == "/api/status":
                 return self._json(rec.status())
+            if path == "/api/storage":
+                return self._json(rec.storage_info())
             if path == "/api/sessions":
                 return self._json(rec.sessions())
             if path.startswith("/files/"):
                 parts = path[len("/files/"):].split("/")
                 if len(parts) == 2 and all(p and p not in (".", "..") and "\\" not in p for p in parts):
-                    return self._file(os.path.join(rec.cfg.output_dir, *parts))
+                    found = rec.resolve_file(*parts)
+                    return self._file(found) if found else self._json({"error": "introuvable"}, 404)
                 return self._json({"error": "chemin invalide"}, 400)
             return self._json({"error": "introuvable"}, 404)
 
@@ -125,6 +128,8 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
                 if path == "/api/start":
                     name = self._body().get("name")
                     return self._json({"session": rec.start(name), "status": rec.status()})
+                if path == "/api/storage":
+                    return self._json(rec.set_storage(str(self._body().get("path", ""))))
                 if path == "/api/stop":
                     return self._json(rec.stop())
             except RecorderError as exc:

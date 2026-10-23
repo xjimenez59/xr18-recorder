@@ -26,7 +26,8 @@ def make_cfg(tmp, **kw):
         f.write(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE}" "$@"\n')
     os.chmod(wrapper, 0o755)
     cfg = config_mod.Config(output_dir=os.path.join(tmp, "rec"), arecord_bin=wrapper,
-                            segment_seconds=1, min_free_gb=0.0, port=0, host="127.0.0.1")
+                            segment_seconds=1, min_free_gb=0.0, port=0, host="127.0.0.1",
+                            state_file=os.path.join(tmp, "state.json"))
     cfg.validate()
     return cfg
 

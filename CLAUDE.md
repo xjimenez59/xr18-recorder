@@ -17,13 +17,16 @@ Enregistrer une répétition ou un concert : les 16 entrées indépendantes de l
 - Le Pi 2 B n'a pas de WiFi : il se branche en Ethernet sur le routeur de scène (Opal), comme dans `stage-lights`.
 
 ## Contenu du dépôt
-- `xr18rec/` (stdlib uniquement) : `config.py` (JSON + validation), `session.py` (pilote `arecord`, compte les overruns, surveille le disque), `server.py` (HTTP + API JSON), `wavtools.py` (lecture d'en-têtes, séparation en WAV mono), `xr18osc.py` (noms/couleurs des voies via OSC UDP 10024), `mixer.py` (pont HTTP→OSC du mix de retour), `static/mix.html` (page musiciens), `qr.py` (QR code SVG, stdlib, servi sur `/qr/mix.svg` avec l'adresse utilisée par le client), `reaper.py` (génère le `.rpp`), `static/index.html` (interface tablette), `__main__.py` (CLI : `serve`, `split`, `info`, `config`, `names`, `reaper`, `mixprobe`).
+- `xr18rec/` (stdlib uniquement) : `config.py` (JSON + validation), `session.py` (pilote `arecord`, compte les overruns, surveille le disque), `server.py` (HTTP + API JSON), `wavtools.py` (lecture d'en-têtes, séparation en WAV mono), `xr18osc.py` (noms/couleurs des voies via OSC UDP 10024), `storage.py` (emplacements d'enregistrement), `mixer.py` (pont HTTP→OSC du mix de retour), `static/mix.html` (page musiciens), `qr.py` (QR code SVG, stdlib, servi sur `/qr/mix.svg` avec l'adresse utilisée par le client), `reaper.py` (génère le `.rpp`), `static/index.html` (interface tablette), `__main__.py` (CLI : `serve`, `split`, `info`, `config`, `names`, `reaper`, `mixprobe`).
 - `tests/` : `python3 -m unittest discover -s tests` avec un **faux arecord** (`tests/fake_arecord.py`).
 - `scripts/` : `probe-xr18.sh`, `soak-test.sh`, `install-pi.sh`, `deploy.sh`, `xr18rec.service`.
 - `config/xr18rec.json` : exemple de configuration. `docs/` : architecture, disque/formats, plan de tests.
 
 ## API
 `GET /api/status`, `GET /api/sessions`, `POST /api/start {"name": "..."}`, `POST /api/stop`, `GET /files/<session>/<fichier>`. Aucune authentification : réseau de scène privé uniquement.
+
+## Choix du stockage
+`storage.py` liste la carte SD (`output_dir`, défaut `/var/lib/xr18rec/recordings`) et les disques USB déjà montés (`/dev/sd*`, `/dev/nvme*` d'après `/proc/mounts`, dossier `<montage>/xr18-recordings`). Sélection dans l'interface (`GET/POST /api/storage`), refusée pendant un enregistrement, mémorisée dans `state_file`. Pas de montage automatique (droits root) : monter via fstab avec `nofail`. Les sessions de tous les emplacements sont listées et téléchargeables. **À vérifier sur le Pi** : droits d'écriture sur le disque, détection des étiquettes (`/dev/disk/by-label`).
 
 ## Mix de retour (in-ear)
 Page `/mix` (navigateur, sans app) : chaque musicien choisit son bus Aux 1..6 et règle les départs des 16 voies (noms/couleurs XR18). `mixer.py` = pont HTTP→OSC, un seul client OSC (`/xremote` renouvelé toutes les 8 s ; l'XR18 accepte 8 abonnés max). Sécurité in-ear : `mix_max_db` plafonne côté serveur les départs et le volume général du bus (`/bus/N/mix/fader`, affiché seulement si l'XR18 répond : **à vérifier**). Retours `/rtn/aux` et `/fxrtn/NN` : affichés seulement si l'XR18 répond (**à vérifier** : `python3 -m xr18rec mixprobe --host IP`). API : `GET /api/mix/buses`, `GET /api/mix/<bus>`, `POST /api/mix/<bus>/send {source, db}`. Aucune authentification : un musicien peut ouvrir le bus d'un autre.

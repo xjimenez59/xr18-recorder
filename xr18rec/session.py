@@ -13,7 +13,7 @@ import time
 from collections import deque
 from datetime import datetime
 
-from . import xr18osc
+from . import storage, xr18osc
 from .config import Config
 from .reaper import LAYOUT_FILE, load_layout, write_project
 
@@ -41,6 +41,8 @@ class Recorder:
         self._error: str | None = None
         self._stopping = False
         self._layout_thread: threading.Thread | None = None
+        self._notice: str | None = None
+        self._active_dir = self._restore_choice()
 
     # ---- commande ---------------------------------------------------------
     def build_command(self, basename: str) -> list[str]:
@@ -53,7 +55,7 @@ class Recorder:
 
     # ---- état -------------------------------------------------------------
     def free_gb(self) -> float:
-        path = self.cfg.output_dir
+        path = self._active_dir
         while path and not os.path.exists(path):
             path = os.path.dirname(path)
         return shutil.disk_usage(path or "/").free / 1024**3
@@ -83,6 +85,7 @@ class Recorder:
                 "free_gb": round(self.free_gb(), 2),
                 "files": files,
                 "error": self._error,
+                "storage": self._storage_summary(),
                 "stderr_tail": list(self._stderr_tail),
                 "config": {
                     "device": self.cfg.device, "channels": self.cfg.channels,
@@ -106,27 +109,95 @@ class Recorder:
         return out
 
     def sessions(self) -> list[dict]:
-        root = self.cfg.output_dir
+        out = []
+        for v in self.volumes():
+            try:
+                names = [n for n in os.listdir(v.path) if os.path.isdir(os.path.join(v.path, n))]
+            except OSError:
+                continue
+            out += [{"name": n, "location": v.label, "files": self._list_files(os.path.join(v.path, n))}
+                    for n in names]
+        return sorted(out, key=lambda e: e["name"], reverse=True)
+
+    def resolve_file(self, session: str, filename: str) -> str | None:
+        """Chemin d'un fichier de session, quel que soit l'emplacement où elle a été enregistrée."""
+        for v in self.volumes():
+            path = os.path.join(v.path, session, filename)
+            if os.path.isfile(path):
+                return path
+        return None
+
+    # ---- stockage ---------------------------------------------------------
+    def volumes(self) -> list[storage.Volume]:
+        return storage.list_volumes(self.cfg.output_dir, self.cfg.usb_auto)
+
+    def _restore_choice(self) -> str:
+        """Emplacement mémorisé s'il est encore disponible, sinon le dossier par défaut."""
         try:
-            names = sorted((n for n in os.listdir(root) if os.path.isdir(os.path.join(root, n))),
-                           reverse=True)
-        except OSError:
-            return []
-        return [{"name": n, "files": self._list_files(os.path.join(root, n))} for n in names]
+            with open(self.cfg.state_file, encoding="utf-8") as f:
+                saved = json.load(f).get("storage")
+        except (OSError, ValueError, AttributeError):
+            return self.cfg.output_dir
+        if saved and saved in [v.path for v in self.volumes()]:
+            return saved
+        if saved and saved != self.cfg.output_dir:
+            self._notice = f"Disque habituel absent ({saved}) : carte SD utilisée"
+        return self.cfg.output_dir
+
+    def _storage_summary(self) -> dict:
+        vols = {v.path: v for v in self.volumes()}
+        v = vols.get(self._active_dir)
+        return {"path": self._active_dir, "label": v.label if v else self._active_dir,
+                "kind": v.kind if v else None, "available": v is not None}
+
+    def storage_info(self) -> dict:
+        with self._lock:
+            vols = self.volumes()
+            if self._active_dir not in [v.path for v in vols]:
+                self._notice = f"Emplacement absent : {self._active_dir}"
+            return {"active": self._active_dir, "recording": self.is_recording(), "notice": self._notice,
+                    "options": [dict(v.to_dict(), active=(v.path == self._active_dir)) for v in vols]}
+
+    def set_storage(self, path: str) -> dict:
+        with self._lock:
+            if self.is_recording():
+                raise RecorderError("impossible de changer d'emplacement pendant un enregistrement")
+            match = next((v for v in self.volumes() if v.path == path), None)
+            if match is None:
+                raise RecorderError("emplacement inconnu ou non monté")
+            if not match.writable:
+                raise RecorderError(f"{match.label} : dossier non inscriptible (droits du disque ?)")
+            try:
+                os.makedirs(match.path, exist_ok=True)
+            except OSError as exc:
+                raise RecorderError(f"{match.label} : création du dossier impossible ({exc})") from exc
+            self._active_dir, self._notice = match.path, None
+            try:
+                os.makedirs(os.path.dirname(self.cfg.state_file) or ".", exist_ok=True)
+                with open(self.cfg.state_file, "w", encoding="utf-8") as f:
+                    json.dump({"storage": match.path}, f)
+            except OSError:
+                pass  # choix non mémorisé après redémarrage : sans gravité
+        return self.storage_info()
 
     # ---- start / stop -----------------------------------------------------
     def start(self, name: str | None = None) -> str:
         with self._lock:
             if self.is_recording():
                 raise RecorderError("un enregistrement est déjà en cours")
-            os.makedirs(self.cfg.output_dir, exist_ok=True)
+            if self._active_dir not in [v.path for v in self.volumes()]:
+                raise RecorderError(f"emplacement d'enregistrement absent : {self._active_dir}")
+            try:
+                os.makedirs(self._active_dir, exist_ok=True)
+            except OSError as exc:
+                raise RecorderError(f"dossier d'enregistrement inutilisable : {exc}") from exc
             if self.free_gb() < self.cfg.min_free_gb:
                 raise RecorderError(
                     f"espace disque insuffisant : {self.free_gb():.1f} Gio libres "
                     f"(minimum {self.cfg.min_free_gb} Gio)")
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             label = sanitize_name(name)
-            directory = os.path.join(self.cfg.output_dir, f"{stamp}-{label}" if label else stamp)
+            directory = os.path.join(self._active_dir, f"{stamp}-{label}" if label else stamp)
             os.makedirs(directory, exist_ok=False)
             basename = os.path.join(directory, "take.wav")
             cmd = self.build_command(basename)

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon retour</title>
+<style>
+  :root { --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --card:#1e2127; --accent:#3b82f6; --warn:#f59e0b; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f5f6f8; --fg:#1b1d21; --muted:#5f6368; --card:#fff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; max-width:640px; margin-inline:auto; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+  h1 { font-size:1.2rem; margin:0; }
+  button { padding:12px 16px; border:0; border-radius:8px; font-size:1rem; font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .err { color:var(--warn); min-height:1.4em; }
+  #buses { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+  #buses button { padding:22px 12px; font-size:1.1rem; }
+  .src { background:var(--card); border-radius:10px; padding:10px 12px; margin-bottom:8px; border-left:8px solid #8886; }
+  .src .top { display:flex; justify-content:space-between; gap:8px; font-weight:600; }
+  .src .db { font-variant-numeric:tabular-nums; color:var(--muted); font-weight:500; }
+  input[type=range] { width:100%; height:44px; margin:2px 0 0; accent-color:var(--accent); touch-action:pan-y; }
+  .src.master { border-left-color:var(--accent); margin-bottom:14px; }
+  .src.master .top { font-size:1.1rem; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div id="pick" hidden>
+  <h1>Quel retour ?</h1>
+  <p class="muted">Choisissez votre sortie. Elle sera mémorisée sur ce téléphone.</p>
+  <div id="buses"></div>
+</div>
+
+<div id="mix" hidden>
+  <header>
+    <h1 id="title">Mon retour</h1>
+    <button class="ghost" id="change">Changer</button>
+  </header>
+  <div class="muted" id="limit"></div>
+  <div class="err" id="error"></div>
+  <div id="list"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const faderToDb = f => f >= .5 ? f*40-30 : f >= .25 ? f*80-50 : f >= .0625 ? f*160-70 : f*480-90;
+const showDb = f => f <= 0.0005 ? '−∞' : (faderToDb(f) > 0 ? '+' : '') + faderToDb(f).toFixed(1) + ' dB';
+const store = {
+  get() { try { return localStorage.getItem('xr18bus'); } catch { return null; } },
+  set(v) { try { localStorage.setItem('xr18bus', v); } catch {} },
+  del() { try { localStorage.removeItem('xr18bus'); } catch {} },
+};
+
+let bus = null, rows = {}, touched = {}, timers = {}, pending = {};
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function showPicker() {
+  bus = null; store.del(); history.replaceState(null, '', '#');
+  $('mix').hidden = true; $('pick').hidden = false;
+  const box = $('buses'); box.replaceChildren();
+  try {
+    for (const b of await api('/api/mix/buses')) {
+      const btn = document.createElement('button');
+      btn.textContent = b.name; btn.onclick = () => choose(b.bus);
+      box.append(btn);
+    }
+  } catch (e) { box.textContent = e.message; }
+}
+
+function choose(n) {
+  bus = n; store.set(String(n)); history.replaceState(null, '', '#' + n);
+  rows = {}; $('list').replaceChildren();
+  $('pick').hidden = true; $('mix').hidden = false;
+  poll();
+}
+
+function build(data) {
+  $('title').textContent = data.name;
+  $('limit').textContent = data.max_db < 10 ? `Plafond de sécurité : ${data.max_db > 0 ? '+' : ''}${data.max_db} dB` : '';
+  const list = $('list'); list.replaceChildren(); rows = {};
+  for (const s of data.sources) {
+    const div = document.createElement('div'); div.className = s.master ? 'src master' : 'src';
+    if (s.color) div.style.borderLeftColor = s.color;
+    const top = document.createElement('div'); top.className = 'top';
+    const name = document.createElement('span'); name.textContent = s.name;
+    const db = document.createElement('span'); db.className = 'db';
+    top.append(name, db);
+    const sl = document.createElement('input');
+    sl.type = 'range'; sl.min = 0; sl.max = data.max_fader; sl.step = 0.001; sl.value = Math.min(s.fader, data.max_fader);
+    sl.oninput = () => { db.textContent = showDb(+sl.value); touched[s.id] = Date.now(); queue(s.id, +sl.value); };
+    sl.onchange = () => { touched[s.id] = Date.now(); };
+    div.append(top, sl); list.append(div);
+    rows[s.id] = {sl, db, name};
+    db.textContent = showDb(+sl.value);
+  }
+}
+
+// limite le débit d'envoi à ~10 messages/s par curseur (le dernier état est toujours envoyé)
+function queue(id, fader) {
+  pending[id] = fader;
+  if (timers[id]) return;
+  const flush = async () => {
+    const f = pending[id]; delete pending[id];
+    try {
+      const r = await api(`/api/mix/${bus}/send`, {source: id, db: f <= 0.0005 ? -90 : faderToDb(f)});
+      $('error').textContent = '';
+    } catch (e) { $('error').textContent = e.message; }
+    if (id in pending) timers[id] = setTimeout(flush, 100); else delete timers[id];
+  };
+  timers[id] = setTimeout(flush, 0);
+}
+
+async function poll() {
+  if (bus === null) return;
+  try {
+    const data = await api(`/api/mix/${bus}`);
+    const ids = data.sources.map(s => s.id).join();
+    if (ids !== Object.keys(rows).join()) build(data);
+    for (const s of data.sources) {
+      const r = rows[s.id];
+      if (!r || Date.now() - (touched[s.id] || 0) < 1500 || timers[s.id]) continue; // ne pas écraser un réglage en cours
+      r.sl.value = Math.min(s.fader, data.max_fader); r.db.textContent = showDb(+r.sl.value);
+      r.name.textContent = s.name;
+    }
+    $('error').textContent = '';
+  } catch (e) { $('error').textContent = 'Connexion perdue : ' + e.message; }
+}
+
+$('change').onclick = showPicker;
+setInterval(poll, 1000);
+const start = (location.hash.slice(1) || store.get() || '');
+if (/^[1-6]$/.test(start)) choose(+start); else showPicker();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Tests",
+      "type": "shell",
+      "command": "python3 -m unittest discover -s tests -v",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Serveur de démo (faux arecord)",
+      "type": "shell",
+      "command": "chmod +x tests/fake_arecord.py && echo '{\"arecord_bin\": \"'$PWD'/tests/fake_arecord.py\", \"output_dir\": \"/tmp/rec\", \"segment_seconds\": 5, \"min_free_gb\": 0}' > /tmp/xr.json && python3 -m xr18rec serve --config /tmp/xr.json",
+      "isBackground": true
+    },
+    {
+      "label": "Déployer sur le Pi",
+      "type": "shell",
+      "command": "scripts/deploy.sh ${input:piTarget}"
+    }
+  ],
+  "inputs": [
+    { "id": "piTarget", "type": "promptString", "description": "utilisateur@hôte", "default": "pi@192.168.8.11" }
+  ]
+}

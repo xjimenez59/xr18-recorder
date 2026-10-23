@@ -1,0 +1,17 @@
+[Unit]
+Description=Enregistreur multipiste XR18 (interface web)
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+User=@USER@
+SupplementaryGroups=audio
+WorkingDirectory=@REPO@
+ExecStart=/usr/bin/python3 -m xr18rec serve --config /etc/xr18rec.json
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+{
+  "python.testing.unittestEnabled": true,
+  "python.testing.unittestArgs": ["-s", "tests", "-p", "test_*.py"],
+  "files.eol": "\n"
+}

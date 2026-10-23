@@ -1,0 +1,16 @@
+{
+  "device": "hw:CARD=XR18,DEV=0",
+  "channels": 18,
+  "rate": 48000,
+  "format": "S32_LE",
+  "output_dir": "/mnt/recordings",
+  "segment_seconds": 900,
+  "min_free_gb": 2.0,
+  "arecord_bin": "arecord",
+  "host": "0.0.0.0",
+  "port": 8080,
+  "xr18_host": "192.168.1.50",
+  "xr18_osc_port": 10024,
+  "mix_buses": [1, 2, 3, 4, 5, 6],
+  "mix_max_db": 0.0
+}

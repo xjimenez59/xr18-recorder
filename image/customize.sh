@@ -22,6 +22,10 @@ for f in /boot/user-data /boot/meta-data /boot/network-config; do
 done
 echo "== DIAG /etc/cloud :"; ls /etc/cloud /etc/cloud/cloud.cfg.d 2>/dev/null | head -30 || true
 echo "== DIAG utilisateurs existants :"; getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1" uid="$3}' || true
+echo "== DIAG cloud-init (réglages Raspberry Pi) :"; cat /etc/cloud/cloud.cfg.d/99_raspberry-pi.cfg 2>/dev/null || true
+grep -nE 'ssh_pwauth|preserve_hostname|manage_etc_hosts|update_hostname' /etc/cloud/cloud.cfg 2>/dev/null || true
+echo "== DIAG fstab :"; cat /etc/fstab
+echo "== DIAG sshd_config.d :"; ls /etc/ssh/sshd_config.d 2>/dev/null || true
 echo "== DIAG fin du relevé =="
 
 # ---- paquets -------------------------------------------------------------------------------
@@ -62,6 +66,17 @@ else printf '127.0.1.1\txr18rec\n' >> /etc/hosts; fi
 echo Europe/Paris > /etc/timezone
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
 sed -i '0,/defaults/s/defaults/defaults,noatime/' /etc/fstab   # moins d'écritures sur la carte SD
+
+# cloud-init (présent dans Raspberry Pi OS Trixie) ne doit pas renommer le Pi, et doit laisser SSH accepter
+# le mot de passe quand l'utilisateur active SSH (fichier « ssh » sur la partition de démarrage).
+if [ -d /etc/cloud/cloud.cfg.d ]; then
+    cat > /etc/cloud/cloud.cfg.d/99_xr18rec.cfg <<'CLOUD'
+# Enregistreur XR18
+preserve_hostname: true
+manage_etc_hosts: false
+ssh_pwauth: true
+CLOUD
+fi
 
 # Utilisateur local (console / SSH si activé) : mot de passe initial à changer dès la première connexion.
 # Sans cela, Raspberry Pi OS attend un assistant interactif sur l'écran au premier démarrage.

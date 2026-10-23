@@ -1,6 +1,6 @@
 # Installation par image (carte SD à flasher)
 
-L'image contient Raspberry Pi OS Lite 32 bits (compatible avec tous les Pi 2 B) et l'enregistreur, déjà
+L'image contient Raspberry Pi OS Lite 32 bits, version Debian 13 « Trixie » (compatible avec tous les Pi 2 B) et l'enregistreur, déjà
 installé et démarré automatiquement. **Aucun accès Internet n'est nécessaire sur le Pi.**
 
 ## 1. Obtenir l'image
@@ -35,6 +35,9 @@ Le premier démarrage est plus long (agrandissement de la partition, redémarrag
 - page `/rec` : emplacement des enregistrements (carte SD ou disque USB) et sessions ;
 - page `/settings` (⚙ Paramètres) : adresse de l'XR18 (avec détection sur le réseau), audio, retours, heure du Pi, redémarrage et extinction.
   Ces réglages sont mémorisés sur la carte (`/var/lib/xr18rec/settings.json`) et passent **avant** `xr18rec.json` ; « Revenir aux réglages d'origine » les efface.
+
+La base est une image Raspberry Pi OS **datée et vérifiée** (somme SHA-256) dans le workflow : deux constructions donnent la même base.
+Pour passer à une version plus récente, changer `BASE_DIR` et `BASE_FILE` dans [build-image.yml](../.github/workflows/build-image.yml).
 
 ## Ce que fait l'image
 

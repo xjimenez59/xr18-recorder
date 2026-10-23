@@ -73,7 +73,7 @@ def cmd_config(args) -> int:
 
 def cmd_bootconfig(args) -> int:
     from . import bootconfig
-    result = bootconfig.sync(args.boot, args.dest)
+    result = bootconfig.sync(args.boot or bootconfig.default_boot_dir(), args.dest)
     print(f"réglages de la partition de démarrage : {result}")
     return 0  # même invalide : le service doit démarrer avec la configuration précédente
 
@@ -142,7 +142,7 @@ def main(argv=None) -> int:
     s.add_argument("--prefix", default="ch")
     s.set_defaults(fn=cmd_split)
     s = sub.add_parser("bootconfig", help="copie /boot/firmware/xr18rec.json vers /etc après validation")
-    s.add_argument("--boot", default="/boot/firmware")
+    s.add_argument("--boot", help="partition de démarrage (défaut : /boot/firmware ou /boot)")
     s.add_argument("--dest", default="/etc/xr18rec.json")
     s.set_defaults(fn=cmd_bootconfig)
     s = sub.add_parser("automount", help="(root) monte ou démonte un disque USB ; appelé par systemd")

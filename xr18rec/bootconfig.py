@@ -19,6 +19,14 @@ NAME = "xr18rec.json"
 ERROR_NAME = "xr18rec-erreur.txt"
 
 
+def default_boot_dir(candidates=(BOOT_DIR, "/boot")) -> str:
+    """Partition de démarrage : /boot/firmware (Bookworm, Trixie) ou /boot (systèmes plus anciens)."""
+    for d in candidates:
+        if os.path.isfile(os.path.join(d, "config.txt")):
+            return d
+    return candidates[0]
+
+
 def sync(boot_dir: str = BOOT_DIR, dest: str = DEST) -> str:
     """Renvoie « absent », « copié » ou « invalide »."""
     src = os.path.join(boot_dir, NAME)

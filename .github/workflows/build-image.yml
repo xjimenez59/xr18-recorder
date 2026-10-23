@@ -13,11 +13,14 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]   # 3.13 = version de Raspberry Pi OS Trixie
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"   # version de Raspberry Pi OS Bookworm
+          python-version: ${{ matrix.python-version }}
       - run: python -m unittest discover -s tests
 
   image:
@@ -31,11 +34,23 @@ jobs:
       - name: Version de l'image
         run: echo "IMAGE_VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
 
+      # Base figée (même image à chaque construction) et vérifiée par sa somme SHA-256.
+      # Pour passer à une version plus récente : changer BASE_DIR et BASE_FILE (voir downloads.raspberrypi.com).
+      - name: Image de base Raspberry Pi OS Lite (Trixie, 32 bits)
+        run: |
+          BASE_DIR=https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2026-10-06
+          BASE_FILE=2026-10-06-raspios-trixie-armhf-lite.img.xz
+          mkdir -p "$RUNNER_TEMP/base" && cd "$RUNNER_TEMP/base"
+          curl -fsSLO "$BASE_DIR/$BASE_FILE"
+          curl -fsSLO "$BASE_DIR/$BASE_FILE.sha256"
+          sha256sum -c "$BASE_FILE.sha256"
+          echo "BASE_IMAGE=file://$PWD/$BASE_FILE" >> "$GITHUB_ENV"
+
       - name: Personnalisation de Raspberry Pi OS Lite (32 bits, émulation ARM)
         id: build
         uses: pguyot/arm-runner-action@v2
         with:
-          base_image: raspios_lite:latest
+          base_image: ${{ env.BASE_IMAGE }}
           image_additional_mb: 512
           copy_repository_path: /opt/xr18rec-src
           import_github_env: true

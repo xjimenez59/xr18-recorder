@@ -60,6 +60,19 @@ class BootConfigTests(unittest.TestCase):
         self.assertEqual(config_mod.load(self.dest).port, 80)
 
 
+class BootDirTests(unittest.TestCase):
+    def test_default_boot_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            new, old = os.path.join(tmp, "firmware"), os.path.join(tmp, "boot")
+            os.makedirs(new)
+            os.makedirs(old)
+            self.assertEqual(bootconfig.default_boot_dir((new, old)), new)  # aucun config.txt : le premier
+            open(os.path.join(old, "config.txt"), "w").close()
+            self.assertEqual(bootconfig.default_boot_dir((new, old)), old)  # ancien emplacement
+            open(os.path.join(new, "config.txt"), "w").close()
+            self.assertEqual(bootconfig.default_boot_dir((new, old)), new)  # le nouveau l'emporte
+
+
 class AutomountTests(unittest.TestCase):
     def plan(self, **props):
         return automount.plan("/dev/sda1", props, 995, 995, root="/media/xr18")

@@ -25,7 +25,7 @@ echo "== DIAG utilisateurs existants :"; getent passwd | awk -F: '$3 >= 1000 && 
 echo "== DIAG cloud-init (réglages Raspberry Pi) :"; cat /etc/cloud/cloud.cfg.d/99_raspberry-pi.cfg 2>/dev/null || true
 grep -nE 'ssh_pwauth|preserve_hostname|manage_etc_hosts|update_hostname' /etc/cloud/cloud.cfg 2>/dev/null || true
 echo "== DIAG fstab :"; cat /etc/fstab
-echo "== DIAG sshd_config.d :"; ls /etc/ssh/sshd_config.d 2>/dev/null || true
+echo "== DIAG sshd_config.d :"; for f in /etc/ssh/sshd_config.d/*; do echo "-- $f"; cat "$f"; done 2>/dev/null || true
 echo "== DIAG fin du relevé =="
 
 # ---- paquets -------------------------------------------------------------------------------

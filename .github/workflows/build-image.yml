@@ -80,6 +80,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: Enregistreur XR18 ${{ github.ref_name }}
+          body: |
+            Image à flasher sur une carte SD pour Raspberry Pi 2 B (Raspberry Pi OS Lite 32 bits, Debian 13 « Trixie »).
+
+            1. Télécharger `xr18rec-*.img.xz` (inutile de le décompresser) ; vérification possible avec le fichier `.sha256`.
+            2. Flasher avec Raspberry Pi Imager (« Utiliser personnalisé ») ou balenaEtcher ; refuser la personnalisation proposée.
+            3. Éditer `xr18rec.json` sur la partition `bootfs` (adresse de l'XR18), ou le faire ensuite dans la page ⚙ Paramètres.
+            4. Brancher (Ethernet, XR18 en USB, disque USB) puis ouvrir http://xr18rec.local/
+
+            Détails : [docs/installation-image.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/installation-image.md).
+            **Version non testée sur matériel** : voir la section « À vérifier » de ce document.
           files: |
             xr18rec-*.img.xz
             xr18rec-*.img.xz.sha256

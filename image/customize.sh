@@ -9,6 +9,21 @@ HERE="$(pwd)"
 
 echo "== Image de base : $(. /etc/os-release && echo "$PRETTY_NAME") ($(dpkg --print-architecture))"
 
+# ---- diagnostic de l'image de base (informatif : aide à adapter la personnalisation) -----------
+echo "== DIAG date de l'image de base :"; cat /boot/issue.txt 2>/dev/null || cat /etc/rpi-issue 2>/dev/null || true
+echo "== DIAG paquets :"
+dpkg -l | awk '/^ii/ {print $2" "$3}' | grep -E '^(cloud-init|raspberrypi-sys-mods|userconf-pi|network-manager|netplan.io|openssh-server|avahi-daemon|polkitd|policykit-1|systemd|python3|raspi-config|rpi-first-boot-wizard) ' || true
+echo "== DIAG unités de premier démarrage :"
+systemctl list-unit-files --no-pager 2>/dev/null | grep -Ei 'cloud|userconf|firstboot|first-boot|regenerate|sshswitch|resize|wizard|ssh' || true
+echo "== DIAG partition de démarrage :"; ls -la /boot | head -40
+echo "== DIAG cmdline.txt :"; cat /boot/cmdline.txt 2>/dev/null || true
+for f in /boot/user-data /boot/meta-data /boot/network-config; do
+    if [ -f "$f" ]; then echo "== DIAG $f :"; sed -n 1,40p "$f"; fi
+done
+echo "== DIAG /etc/cloud :"; ls /etc/cloud /etc/cloud/cloud.cfg.d 2>/dev/null | head -30 || true
+echo "== DIAG utilisateurs existants :"; getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {print $1" uid="$3}' || true
+echo "== DIAG fin du relevé =="
+
 # ---- paquets -------------------------------------------------------------------------------
 apt-get update
 apt-get install -y --no-install-recommends python3 alsa-utils usbutils xfsprogs exfatprogs ntfs-3g avahi-daemon rsync

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enregistrements</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="top">
+  <h1>Enregistrements</h1>
+  <a class="btn ghost" href="/">‹ Accueil</a>
+</div>
+
+<div class="card">
+  <div class="row"><span id="state" class="state">…</span><span id="session" class="muted"></span></div>
+  <div class="big" id="elapsed">00:00:00</div>
+  <div class="muted">Disque libre : <b id="free">?</b> Gio · Dépassements : <b id="overruns">0</b></div>
+  <div class="err" id="error"></div>
+  <ul id="files"></ul>
+</div>
+
+<div class="card">
+  <b>Emplacement des enregistrements</b>
+  <div class="row" style="margin-top:8px">
+    <select id="storage"></select>
+  </div>
+  <div class="muted" id="storageinfo" style="overflow-wrap:anywhere"></div>
+  <div class="err" id="storageerr"></div>
+</div>
+
+<div class="card">
+  <b>Sessions</b>
+  <div id="sessions" class="muted">…</div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+function renderFiles(s) {
+  const rec = s.state === 'recording';
+  if (rec !== isRecording) { isRecording = rec; applyZipState(); }
+  const ul = $('files'); ul.replaceChildren();
+  for (const f of s.files) {
+    const li = document.createElement('li');
+    const size = document.createElement('span'); size.className = 'muted'; size.textContent = mb(f.bytes);
+    const nm = document.createElement('span'); nm.textContent = f.name;
+    li.append(nm, size);
+    ul.append(li);
+  }
+}
+
+let isRecording = false;
+const gio = b => b >= 1e9 ? (b / 1073741824).toFixed(1) + ' Gio' : mb(b);
+function applyZipState() {
+  document.querySelectorAll('a.zip').forEach(a => {
+    a.classList.toggle('disabled', isRecording);
+    a.title = isRecording ? 'Indisponible pendant un enregistrement (ralentirait le Pi)' : '';
+  });
+}
+
+async function loadSessions() {
+  try {
+    const list = await api('/api/sessions');
+    const box = $('sessions'); box.replaceChildren();
+    if (!list.length) { box.textContent = 'Aucune session.'; return; }
+    for (const s of list) {
+      const wrap = document.createElement('div'); wrap.className = 'sess';
+      const head = document.createElement('div'); head.className = 'row';
+      const title = document.createElement('div'); title.style.flex = '1'; title.style.minWidth = '0';
+      const nm = document.createElement('b'); nm.textContent = s.name; nm.style.overflowWrap = 'anywhere';
+      const total = s.files.reduce((n, f) => n + f.bytes, 0);
+      const meta = document.createElement('div'); meta.className = 'muted';
+      meta.textContent = `${s.location || ''} · ${s.files.length} fichiers · ${gio(total)}`;
+      title.append(nm, meta);
+      const zip = document.createElement('a'); zip.className = 'btn ghost zip';
+      zip.href = `/zip/${encodeURIComponent(s.name)}`; zip.textContent = '⬇ Zip'; zip.download = `${s.name}.zip`;
+      head.append(title, zip);
+      const d = document.createElement('details');
+      const sum = document.createElement('summary'); sum.textContent = 'Fichiers'; sum.className = 'muted'; d.append(sum);
+      const ul = document.createElement('ul');
+      for (const f of s.files) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = `/files/${encodeURIComponent(s.name)}/${encodeURIComponent(f.name)}`; a.textContent = f.name; a.download = '';
+        const size = document.createElement('span'); size.className = 'muted'; size.textContent = mb(f.bytes);
+        li.append(a, size); ul.append(li);
+      }
+      d.append(ul); wrap.append(head, d); box.append(wrap);
+    }
+    applyZipState();
+  } catch (e) { $('sessions').textContent = e.message; }
+}
+
+const WARN_FS = {vfat:'FAT32 : fichiers limités à 4 Gio', exfat:'exFAT : à éviter sur Pi (lent)', ntfs:'NTFS : lent sur Pi 2', fuseblk:'NTFS/exFAT via FUSE : lent sur Pi 2'};
+async function loadStorage() {
+  try {
+    const d = await api('/api/storage');
+    const sel = $('storage');
+    if (document.activeElement !== sel) {
+      sel.replaceChildren();
+      for (const o of d.options) {
+        const opt = document.createElement('option');
+        opt.value = o.path; opt.selected = o.active;
+        opt.textContent = `${o.kind === 'sd' ? '💾' : '🔌'} ${o.label} · ${o.free_gb} Gio libres` + (o.writable ? '' : ' · NON INSCRIPTIBLE');
+        sel.append(opt);
+      }
+    }
+    sel.disabled = d.recording;
+    const act = d.options.find(o => o.active);
+    const warn = act && WARN_FS[act.fstype] ? ' · ' + WARN_FS[act.fstype] : '';
+    $('storageinfo').textContent = act ? `${act.kind === 'sd' ? 'Carte SD' : 'Disque USB'} · ${act.total_gb} Gio · ${act.fstype || '?'}${warn}` : d.active;
+    if (!$('storageerr').dataset.sticky) $('storageerr').textContent = d.notice || '';
+  } catch (e) { $('storageerr').textContent = e.message; }
+}
+$('storage').onchange = async () => {
+  $('storageerr').dataset.sticky = '';
+  try { await api('/api/storage', {path: $('storage').value}); $('storageerr').textContent = ''; }
+  catch (e) { $('storageerr').textContent = e.message; $('storageerr').dataset.sticky = '1'; }
+  $('storage').blur(); await loadStorage(); loadSessions();
+};
+
+const refresh = () => pollStatus(renderFiles);
+refresh(); loadSessions(); loadStorage();
+setInterval(refresh, 1000);
+setInterval(loadSessions, 15000);
+setInterval(loadStorage, 5000);
+</script>
+</body>
+</html>

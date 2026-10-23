@@ -310,6 +310,16 @@ class ServerTests(unittest.TestCase):
                 code, body = call("/")
                 self.assertEqual(code, 200)
                 self.assertIn(b"Enregistreur XR18", body)
+                self.assertIn(b'id="recbtn"', call("/")[1])  # commandes sur l'accueil
+                code, body = call("/rec")
+                self.assertEqual(code, 200)
+                self.assertIn(b'id="sessions"', body)
+                self.assertNotIn(b'id="recbtn"', body)
+                self.assertEqual(call("/favicon.ico")[0], 204)
+                self.assertEqual(call("/static/app.css")[0], 200)
+                self.assertEqual(call("/static/app.js")[0], 200)
+                self.assertEqual(call("/static/../server.py")[0], 404)
+                self.assertEqual(call("/static/nope.css")[0], 404)
                 self.assertEqual(json.loads(call("/api/status")[1])["state"], "idle")
                 code, body = call("/api/start", {"name": "srv"})
                 self.assertEqual(code, 200)
@@ -347,6 +357,9 @@ class FakeXR18Mixer:
             for b in range(1, 7):
                 self.values[f"/ch/{n:02d}/mix/{b:02d}/level"] = 0.5
         self.values["/bus/2/config/name"] = "Chant"
+        self.values["/lr/mix/on"] = 1
+        for b in range(1, 7):
+            self.values[f"/bus/{b}/mix/on"] = 1
         for b in range(1, 7):
             self.values[f"/bus/{b}/mix/fader"] = 0.6
         self.sets = []

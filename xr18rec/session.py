@@ -127,6 +127,14 @@ class Recorder:
                 return path
         return None
 
+    def resolve_session(self, session: str) -> str | None:
+        """Dossier d'une session, quel que soit l'emplacement où elle a été enregistrée."""
+        for v in self.volumes():
+            path = os.path.join(v.path, session)
+            if os.path.isdir(path):
+                return path
+        return None
+
     # ---- stockage ---------------------------------------------------------
     def volumes(self) -> list[storage.Volume]:
         return storage.list_volumes(self.cfg.output_dir, self.cfg.usb_auto)

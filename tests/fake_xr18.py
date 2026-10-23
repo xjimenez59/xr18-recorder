@@ -27,6 +27,8 @@ def initial_values():
         v[f"/bus/{b}/config/name"] = BUS_NAMES[b - 1]
         v[f"/bus/{b}/config/color"] = b
         v[f"/bus/{b}/mix/fader"] = 0.6
+        v[f"/bus/{b}/mix/on"] = 1
+    v["/lr/mix/on"] = 1
     return v
 
 

@@ -10,11 +10,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
 from . import qr
+from .ziputil import ZipStream
 from .mixer import MixError, MixerClient
 from .session import Recorder, RecorderError
 from .xr18osc import OscError
 
 _HOST_OK = re.compile(r"[A-Za-z0-9.\-]{1,100}(:\d{1,5})?")
+_STATIC_FILE = re.compile(r"/static/([A-Za-z0-9_-]+\.(?:css|js))")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 
@@ -65,6 +67,31 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
                     except (BrokenPipeError, ConnectionResetError):
                         break
 
+        def _zip(self, session: str):
+            """Session complète en ZIP (WAV + projet Reaper) pour la déposer telle quelle sur le PC."""
+            if not session or session in (".", "..") or "/" in session or "\\" in session:
+                return self._json({"error": "chemin invalide"}, 400)
+            if rec.is_recording():
+                return self._json({"error": "téléchargement indisponible pendant un enregistrement "
+                                            "(il ralentirait le Pi et risquerait de faire perdre de l'audio)"}, 409)
+            directory = rec.resolve_session(session)
+            if directory is None:
+                return self._json({"error": "introuvable"}, 404)
+            try:
+                names = sorted(n for n in os.listdir(directory) if os.path.isfile(os.path.join(directory, n)))
+                archive = ZipStream([(os.path.join(directory, n), f"{session}/{n}") for n in names])
+            except OSError as exc:
+                return self._json({"error": f"lecture impossible : {exc}"}, 500)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="{session}.zip"')
+            self.send_header("Content-Length", str(archive.size))
+            self.end_headers()
+            try:
+                archive.write_to(self.wfile)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.close_connection = True  # téléchargement interrompu par le client ou fichier disparu
+
         # -- routes
         def do_GET(self):
             path = unquote(urlparse(self.path).path)
@@ -82,12 +109,25 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if path.startswith("/zip/"):
+                return self._zip(path[len("/zip/"):])
+            if path == "/favicon.ico":  # pas d'icône : évite un 404 à chaque ouverture
+                self.send_response(204)
+                self.end_headers()
+                return
+            if path == "/rec":
+                return self._file(os.path.join(STATIC_DIR, "rec.html"))
+            m = _STATIC_FILE.fullmatch(path)
+            if m:  # feuilles de style et scripts partagés (liste blanche : pas de remontée de dossier)
+                return self._file(os.path.join(STATIC_DIR, m.group(1)))
             if path == "/mix":
                 return self._file(os.path.join(STATIC_DIR, "mix.html"))
             if path.startswith("/api/mix/"):
                 return self._mix_get(path[len("/api/mix/"):])
             if path == "/api/status":
                 return self._json(rec.status())
+            if path == "/api/mute":
+                return self._mix_call(mixer.mute_state if mixer else None)
             if path == "/api/storage":
                 return self._json(rec.storage_info())
             if path == "/api/sessions":
@@ -119,6 +159,9 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
 
         def do_POST(self):
             path = urlparse(self.path).path
+            if path == "/api/mute":
+                body = self._body()
+                return self._mix_call(lambda: mixer.set_mute(str(body.get("target")), bool(body.get("muted"))))
             m = re.fullmatch(r"/api/mix/(\d+)/send", path)
             if m:
                 body = self._body()

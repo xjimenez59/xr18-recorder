@@ -2,27 +2,66 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mon retour</title>
 <style>
-  :root { --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --card:#1e2127; --accent:#3b82f6; --warn:#f59e0b; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f5f6f8; --fg:#1b1d21; --muted:#5f6368; --card:#fff; } }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:12px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; max-width:640px; margin-inline:auto; }
-  header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+  :root {
+    --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --card:#1e2127; --accent:#3b82f6; --warn:#f59e0b;
+    --strip:#23262d; --groove:#08090b; --groove-edge:#3a3e47; --tick:#6b7280;
+    --cap-hi:#d9dce2; --cap-lo:#7d828c; --cap-edge:#15171b; --over:#f59e0b22;
+    --h: clamp(230px, 54vh, 440px); --pad:22px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#eceef2; --fg:#1b1d21; --muted:#5f6368; --card:#fff; --strip:#fff; --groove:#2a2d33;
+            --groove-edge:#9aa0a6; --tick:#6b7280; --cap-hi:#f4f5f7; --cap-lo:#aeb3bc; --cap-edge:#2a2d33; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; padding:12px max(12px, env(safe-area-inset-left)); background:var(--bg); color:var(--fg);
+         font:16px/1.4 system-ui,sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
   h1 { font-size:1.2rem; margin:0; }
   button { padding:12px 16px; border:0; border-radius:8px; font-size:1rem; font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
   button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
   .muted { color:var(--muted); font-size:.9rem; }
   .err { color:var(--warn); min-height:1.4em; }
-  #buses { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
+  #buses { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; max-width:640px; }
   #buses button { padding:22px 12px; font-size:1.1rem; }
-  .src { background:var(--card); border-radius:10px; padding:10px 12px; margin-bottom:8px; border-left:8px solid #8886; }
-  .src .top { display:flex; justify-content:space-between; gap:8px; font-weight:600; }
-  .src .db { font-variant-numeric:tabular-nums; color:var(--muted); font-weight:500; }
-  input[type=range] { width:100%; height:44px; margin:2px 0 0; accent-color:var(--accent); touch-action:pan-y; }
-  .src.master { border-left-color:var(--accent); margin-bottom:14px; }
-  .src.master .top { font-size:1.1rem; }
+
+  /* console : bandes verticales défilant horizontalement */
+  #list { display:flex; gap:6px; overflow-x:auto; padding:4px 2px 12px; scroll-snap-type:x proximity; overscroll-behavior-x:contain; }
+  .strip { flex:0 0 74px; background:var(--strip); border-radius:10px; padding:0 0 10px; display:flex; flex-direction:column;
+           align-items:center; scroll-snap-align:start; touch-action:pan-x pan-y; overflow:hidden; border:1px solid #8883; }
+  .strip.master { position:sticky; left:0; z-index:2; flex-basis:86px; box-shadow:6px 0 10px -6px #000a; border-color:var(--accent); }
+  .name { width:100%; min-height:2.9em; padding:6px 4px; text-align:center; font-size:.8rem; font-weight:700; line-height:1.15;
+          background:var(--c,#555); color:var(--t,#fff); overflow:hidden; display:flex; align-items:center; justify-content:center;
+          overflow-wrap:anywhere; }
+  .val { margin:8px 0 6px; font-variant-numeric:tabular-nums; text-align:center; line-height:1.1; }
+  .val b { font-size:1.05rem; display:block; }
+  .val small { font-size:.7rem; color:var(--muted); }
+
+  .fader { position:relative; width:100%; height:var(--h); touch-action:pan-x pan-y; outline:none; user-select:none; -webkit-user-select:none; }
+  .fader:focus-visible .cap { outline:2px solid var(--accent); outline-offset:2px; }
+  .groove { position:absolute; left:50%; width:8px; margin-left:-4px; top:var(--pad); bottom:var(--pad); border-radius:4px;
+            background:var(--groove); box-shadow:inset 0 0 0 1px var(--groove-edge), inset 0 2px 4px #000a; }
+  /* zone au-dessus du plafond de sécurité : inatteignable */
+  .over { position:absolute; left:50%; width:8px; margin-left:-4px; top:var(--pad); border-radius:4px 4px 0 0;
+          height:calc((100% - 2 * var(--pad)) * (1 - var(--max)));
+          background:repeating-linear-gradient(45deg, var(--warn) 0 2px, transparent 2px 6px); opacity:.55; }
+  .tick { position:absolute; left:0; right:0; height:0; bottom:calc(var(--pad) + (100% - 2 * var(--pad)) * var(--f)); }
+  .tick i { position:absolute; top:0; height:1px; background:var(--tick); }
+  .tick i.l { left:calc(50% - 18px); width:9px; } .tick i.r { right:calc(50% - 18px); width:9px; }
+  .tick span { position:absolute; top:-.5em; width:16px; font-size:.58rem; color:var(--muted); line-height:1; text-align:center; }
+  .tick span.l { left:0; } .tick span.r { right:0; }
+  .tick.zero i { background:var(--fg); height:2px; }
+  .tick.zero span { color:var(--fg); font-weight:700; }
+  .cap { touch-action:none; cursor:ns-resize; position:absolute; left:50%; width:58px; height:40px; margin-left:-29px; margin-bottom:-20px; border-radius:6px;
+         bottom:calc(var(--pad) + (100% - 2 * var(--pad)) * var(--f));
+         background:linear-gradient(var(--cap-hi), var(--cap-lo) 48%, var(--cap-hi) 52%, var(--cap-lo));
+         box-shadow:0 0 0 1px var(--cap-edge), 0 4px 6px #0008, inset 0 1px 0 #fff8; }
+  .cap::after { content:""; position:absolute; left:6px; right:6px; top:50%; height:3px; margin-top:-1.5px; background:var(--c,#222);
+                box-shadow:0 0 0 1px #0006; border-radius:2px; }
+  .cap::before { content:""; position:absolute; inset:-10px -6px; }  /* zone de prise un peu plus large que la poignée */
+  .fader.active .cap { filter:brightness(1.12); }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -46,12 +85,14 @@
 <script>
 const $ = id => document.getElementById(id);
 const faderToDb = f => f >= .5 ? f*40-30 : f >= .25 ? f*80-50 : f >= .0625 ? f*160-70 : f*480-90;
-const showDb = f => f <= 0.0005 ? '−∞' : (faderToDb(f) > 0 ? '+' : '') + faderToDb(f).toFixed(1) + ' dB';
+const dbToFader = db => db <= -90 ? 0 : db < -60 ? (db+90)/480 : db < -30 ? (db+70)/160 : db < -10 ? (db+50)/80 : Math.min((db+30)/40, 1);
+const isOff = f => f <= 0.0005;
 const store = {
   get() { try { return localStorage.getItem('xr18bus'); } catch { return null; } },
   set(v) { try { localStorage.setItem('xr18bus', v); } catch {} },
   del() { try { localStorage.removeItem('xr18bus'); } catch {} },
 };
+const TICKS = [[10,'+10'],[5,'5'],[0,'0'],[-5,'5'],[-10,'10'],[-20,'20'],[-30,'30'],[-40,'40'],[-60,'60']];
 
 let bus = null, rows = {}, touched = {}, timers = {}, pending = {};
 
@@ -82,35 +123,99 @@ function choose(n) {
   poll();
 }
 
+function textOn(hex) {  // texte noir ou blanc selon la luminosité du fond
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299*r + 0.587*g + 0.114*b) > 150 ? '#111' : '#fff';
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function makeStrip(s, maxF) {
+  const strip = el('div', s.master ? 'strip master' : 'strip');
+  const color = s.color || (s.master ? '#3b82f6' : '#555');
+  strip.style.setProperty('--c', color); strip.style.setProperty('--t', textOn(color));
+  const name = el('div', 'name', s.name);
+  const val = el('div', 'val'); const num = el('b'); val.append(num, el('small', '', 'dB'));
+  const fader = el('div', 'fader');
+  fader.tabIndex = 0; fader.setAttribute('role', 'slider');
+  fader.setAttribute('aria-label', s.name); fader.setAttribute('aria-valuemin', '-90');
+  fader.style.setProperty('--max', maxF);
+  for (const [db, label] of TICKS) {
+    const f = dbToFader(db);
+    if (f > 1) continue;
+    const t = el('div', db === 0 ? 'tick zero' : 'tick'); t.style.setProperty('--f', f);
+    const l = el('i', 'l'), r = el('i', 'r');
+    t.append(l, r, el('span', 'l', label), el('span', 'r', label));
+    fader.append(t);
+  }
+  const cap = el('div', 'cap');
+  fader.append(el('div', 'groove'), el('div', 'over'), cap);
+
+  let value = 0;
+  const set = f => {
+    value = Math.max(0, Math.min(f, maxF));
+    fader.style.setProperty('--f', value);
+    const db = faderToDb(value);
+    num.textContent = isOff(value) ? '−∞' : (db > 0 ? '+' : '') + db.toFixed(1);
+    fader.setAttribute('aria-valuenow', isOff(value) ? '-90' : db.toFixed(1));
+    fader.setAttribute('aria-valuemax', String(Math.round(faderToDb(maxF))));
+  };
+  const user = f => { set(f); touched[s.id] = Date.now(); queue(s.id, value); };
+
+  // glissement relatif depuis la poignée uniquement : toucher ailleurs ne change rien et laisse défiler la liste.
+  // Zone morte de 5 px avant de bouger, pour qu'un doigt posé qui tremble ne modifie pas le niveau.
+  const DEAD = 5;
+  let drag = null;
+  cap.addEventListener('pointerdown', e => {
+    cap.setPointerCapture(e.pointerId); fader.focus({preventScroll: true});
+    drag = {y: e.clientY, f: value, moved: false}; fader.classList.add('active'); e.preventDefault();
+  });
+  cap.addEventListener('pointermove', e => {
+    if (!drag) return;
+    if (!drag.moved) {
+      if (Math.abs(e.clientY - drag.y) < DEAD) return;
+      drag.moved = true; drag.y = e.clientY;  // on repart d'ici : pas de saut au franchissement de la zone morte
+    }
+    const pad = parseFloat(getComputedStyle(fader).getPropertyValue('--pad')) || 22;
+    const travel = fader.clientHeight - 2 * pad;
+    user(drag.f + (drag.y - e.clientY) / travel);
+  });
+  const end = () => { if (drag && drag.moved) touched[s.id] = Date.now(); drag = null; fader.classList.remove('active'); };
+  cap.addEventListener('pointerup', end); cap.addEventListener('pointercancel', end);
+  fader.addEventListener('keydown', e => {
+    const step = {ArrowUp:.01, ArrowRight:.01, ArrowDown:-.01, ArrowLeft:-.01, PageUp:.05, PageDown:-.05}[e.key];
+    if (step === undefined) return;
+    e.preventDefault(); user(value + step);
+  });
+
+  strip.append(name, val, fader);
+  return {strip, set, name};
+}
+
 function build(data) {
   $('title').textContent = data.name;
-  $('limit').textContent = data.max_db < 10 ? `Plafond de sécurité : ${data.max_db > 0 ? '+' : ''}${data.max_db} dB` : '';
+  $('limit').textContent = data.max_db < 10
+    ? `Plafond de sécurité : ${data.max_db > 0 ? '+' : ''}${data.max_db} dB (zone hachurée inatteignable)` : '';
   const list = $('list'); list.replaceChildren(); rows = {};
   for (const s of data.sources) {
-    const div = document.createElement('div'); div.className = s.master ? 'src master' : 'src';
-    if (s.color) div.style.borderLeftColor = s.color;
-    const top = document.createElement('div'); top.className = 'top';
-    const name = document.createElement('span'); name.textContent = s.name;
-    const db = document.createElement('span'); db.className = 'db';
-    top.append(name, db);
-    const sl = document.createElement('input');
-    sl.type = 'range'; sl.min = 0; sl.max = data.max_fader; sl.step = 0.001; sl.value = Math.min(s.fader, data.max_fader);
-    sl.oninput = () => { db.textContent = showDb(+sl.value); touched[s.id] = Date.now(); queue(s.id, +sl.value); };
-    sl.onchange = () => { touched[s.id] = Date.now(); };
-    div.append(top, sl); list.append(div);
-    rows[s.id] = {sl, db, name};
-    db.textContent = showDb(+sl.value);
+    const r = makeStrip(s, data.max_fader);
+    r.set(s.fader); rows[s.id] = r; list.append(r.strip);
   }
 }
 
-// limite le débit d'envoi à ~10 messages/s par curseur (le dernier état est toujours envoyé)
+// limite le débit d'envoi à ~10 messages/s par glissière (le dernier état est toujours envoyé)
 function queue(id, fader) {
   pending[id] = fader;
   if (timers[id]) return;
   const flush = async () => {
     const f = pending[id]; delete pending[id];
     try {
-      const r = await api(`/api/mix/${bus}/send`, {source: id, db: f <= 0.0005 ? -90 : faderToDb(f)});
+      await api(`/api/mix/${bus}/send`, {source: id, db: isOff(f) ? -90 : faderToDb(f)});
       $('error').textContent = '';
     } catch (e) { $('error').textContent = e.message; }
     if (id in pending) timers[id] = setTimeout(flush, 100); else delete timers[id];
@@ -122,13 +227,11 @@ async function poll() {
   if (bus === null) return;
   try {
     const data = await api(`/api/mix/${bus}`);
-    const ids = data.sources.map(s => s.id).join();
-    if (ids !== Object.keys(rows).join()) build(data);
+    if (data.sources.map(s => s.id).join() !== Object.keys(rows).join()) build(data);
     for (const s of data.sources) {
       const r = rows[s.id];
       if (!r || Date.now() - (touched[s.id] || 0) < 1500 || timers[s.id]) continue; // ne pas écraser un réglage en cours
-      r.sl.value = Math.min(s.fader, data.max_fader); r.db.textContent = showDb(+r.sl.value);
-      r.name.textContent = s.name;
+      r.set(s.fader); r.name.textContent = s.name;
     }
     $('error').textContent = '';
   } catch (e) { $('error').textContent = 'Connexion perdue : ' + e.message; }

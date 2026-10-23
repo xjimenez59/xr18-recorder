@@ -89,6 +89,8 @@ class MixerClient:
         self._master_absent = False
         self._master_seen = False
         self._loaded_ids: set[str] = set()
+        self._mute_loaded = -1e9
+        self._pre_mute: dict[str, dict[str, int]] = {}  # états « on » d'avant le mute, par cible
         self._cond = threading.Condition()
         self._closed = threading.Event()
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -230,6 +232,56 @@ class MixerClient:
         return {"bus": bus, "name": str(bname).strip() if bname else f"Aux {bus}",
                 "max_db": self.max_db, "max_fader": round(db_to_fader(self.max_db), 4),
                 "version": version, "sources": sources}
+
+    # ---- mute général -----------------------------------------------------
+    # Adresses /lr/mix/on et /bus/N/mix/on (1 = actif, 0 = coupé) : non confirmées dans la documentation
+    # consultée ; la cible n'est « disponible » que si l'XR18 répond.
+    def _mute_addrs(self, target: str) -> list[str]:
+        if target == "main":
+            return ["/lr/mix/on"]
+        if target == "buses":
+            return [f"/bus/{b}/mix/on" for b in self.buses]
+        raise MixError(f"cible de mute inconnue : {target}")
+
+    def mute_state(self) -> dict:
+        with self._load_lock:
+            if time.monotonic() - self._mute_loaded > 60:  # resynchronisation (l'abonnement tient le reste à jour)
+                addrs = self._mute_addrs("main") + self._mute_addrs("buses")
+                self._query(addrs, timeout=1.0)
+                if any(a in self._fresh for a in addrs):
+                    self._mute_loaded = time.monotonic()
+        with self._cond:
+            v = dict(self._values)
+        out = {}
+        for target in ("main", "buses"):
+            states = [v.get(a) for a in self._mute_addrs(target)]
+            known = [int(x) for x in states if isinstance(x, (int, float))]
+            available = len(known) == len(states)
+            muted = available and all(x == 0 for x in known)
+            out[target] = {"available": available, "muted": muted,
+                           "partial": available and not muted and any(x == 0 for x in known)}
+        return out
+
+    def set_mute(self, target: str, muted: bool) -> dict:
+        addrs = self._mute_addrs(target)
+        with self._cond:
+            current = {a: self._values.get(a) for a in addrs}
+        if not all(isinstance(x, (int, float)) for x in current.values()):
+            raise MixError("mute indisponible : l'XR18 n'a pas répondu pour cette cible")
+        if muted:
+            # on retient ce qui était actif, pour ne pas réactiver ensuite une sortie coupée volontairement
+            if any(int(x) == 1 for x in current.values()):
+                self._pre_mute[target] = {a: int(x) for a, x in current.items()}
+            new = {a: 0 for a in addrs}
+        else:
+            before = self._pre_mute.pop(target, {})
+            new = {a: before.get(a, 1) for a in addrs}
+        for a, val in new.items():
+            self._send(xr18osc.encode(a, int(val)))
+        with self._cond:
+            self._values.update(new)
+            self.version += 1
+        return self.mute_state()
 
     # ---- écriture ---------------------------------------------------------
     def set_send(self, bus: int, source: str, db: float) -> float:

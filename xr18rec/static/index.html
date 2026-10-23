@@ -4,171 +4,83 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Enregistreur XR18</title>
-<style>
-  :root { --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; --card:#1e2127; --accent:#3b82f6; --rec:#ef4444; --ok:#22c55e; }
-  @media (prefers-color-scheme: light) { :root { --bg:#f5f6f8; --fg:#1b1d21; --muted:#5f6368; --card:#fff; } }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; max-width:720px; margin-inline:auto; }
-  h1 { font-size:1.2rem; margin:0 0 12px; }
-  .card { background:var(--card); border-radius:12px; padding:16px; margin-bottom:12px; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  input[type=text] { flex:1; min-width:140px; padding:12px; border-radius:8px; border:1px solid #8884; background:transparent; color:inherit; font-size:1rem; }
-  button { padding:14px 20px; border:0; border-radius:8px; font-size:1.05rem; font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
-  button.stop { background:var(--rec); }
-  button:disabled { opacity:.4; }
-  .big { font-size:2.4rem; font-variant-numeric:tabular-nums; font-weight:700; }
-  .state { display:inline-block; padding:2px 10px; border-radius:99px; font-size:.85rem; font-weight:600; background:#8884; }
-  .state.recording { background:var(--rec); color:#fff; }
-  .state.error { background:#b45309; color:#fff; }
-  .muted { color:var(--muted); font-size:.9rem; }
-  .err { color:#f59e0b; margin-top:8px; }
-  ul { list-style:none; padding:0; margin:8px 0 0; }
-  li { padding:6px 0; border-top:1px solid #8883; display:flex; justify-content:space-between; gap:8px; }
-  a { color:var(--accent); }
-  select { flex:1; padding:12px; border-radius:8px; border:1px solid #8884; background:var(--card); color:inherit; font-size:1rem; }
-  details summary { cursor:pointer; padding:4px 0; }
-</style>
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <h1>Enregistreur XR18</h1>
 
 <div class="card">
   <div class="row"><span id="state" class="state">…</span><span id="session" class="muted"></span></div>
-  <div class="big" id="elapsed">00:00:00</div>
+  <div class="timerow">
+    <div class="big" id="elapsed">00:00:00</div>
+    <button id="recbtn" class="recbtn" disabled>● REC</button>
+  </div>
   <div class="muted">Disque libre : <b id="free">?</b> Gio · Dépassements : <b id="overruns">0</b></div>
   <div class="muted" id="cfg"></div>
   <div class="err" id="error"></div>
-</div>
-
-<div class="card">
-  <div class="row">
-    <input type="text" id="name" placeholder="Nom de la session (facultatif)" maxlength="60">
-    <button id="start">Enregistrer</button>
-    <button id="stop" class="stop" disabled>Arrêter</button>
-  </div>
-  <ul id="files"></ul>
-</div>
-
-<div class="card">
-  <b>Emplacement des enregistrements</b>
-  <div class="row" style="margin-top:8px">
-    <select id="storage"></select>
-  </div>
-  <div class="muted" id="storageinfo"></div>
-  <div class="err" id="storageerr"></div>
+  <input type="text" id="name" class="namefield" placeholder="Nom de la session (facultatif)" maxlength="60">
+  <div style="margin-top:12px; text-align:right"><a class="btn ghost" id="manage" href="/rec">Sessions et stockage ›</a></div>
 </div>
 
 <div class="card">
   <b>Retours des musiciens</b>
-  <div class="row" style="margin-top:8px">
-    <img src="/qr/mix.svg" alt="QR code de la page des retours" width="150" height="150" style="background:#fff;border-radius:8px">
-    <div><a id="mixlink" href="/mix">/mix</a><div class="muted">Scanner avec le téléphone, ou saisir cette adresse.</div></div>
+  <div style="margin-top:8px; text-align:center">
+    <img src="/qr/mix.svg" alt="QR code de la page des retours" width="170" height="170" style="display:block; margin:0 auto 8px; background:#fff; border-radius:8px">
+    <a id="mixlink" href="/mix" style="overflow-wrap:anywhere">/mix</a>
+    <div class="muted">Scanner avec le téléphone, ou saisir cette adresse.</div>
   </div>
 </div>
 
-<div class="card">
-  <b>Sessions</b>
-  <div id="sessions" class="muted">…</div>
+<div class="card" id="mutecard" hidden>
+  <b>Mute</b>
+  <div class="mutes">
+    <button class="mutebtn" id="mute-buses" disabled></button>
+    <button class="mutebtn" id="mute-main" disabled></button>
+  </div>
+  <div class="err" id="muteerr"></div>
 </div>
 
+<script src="/static/app.js"></script>
 <script>
-const $ = id => document.getElementById(id);
-const fmt = s => [Math.floor(s/3600), Math.floor(s%3600/60), Math.floor(s%60)].map(n => String(n).padStart(2,'0')).join(':');
-const mb = b => (b/1048576).toFixed(b > 1e9 ? 0 : 1) + ' Mio';
-let busy = false;
-
-async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error || r.statusText);
-  return j;
-}
-
-function render(s) {
-  const st = $('state');
-  st.textContent = {recording:'Enregistrement', idle:'Prêt', error:'Erreur'}[s.state] || s.state;
-  st.className = 'state ' + s.state;
-  $('session').textContent = s.session || '';
-  $('elapsed').textContent = fmt(s.elapsed_s);
-  $('free').textContent = s.free_gb;
-  $('overruns').textContent = s.overruns;
-  $('cfg').textContent = `${s.config.device} · ${s.config.channels} voies · ${s.config.rate} Hz · ${s.config.format}`;
-  $('error').textContent = s.error || '';
-  const rec = s.state === 'recording';
-  $('start').disabled = rec || busy; $('stop').disabled = !rec || busy;
-  const ul = $('files'); ul.replaceChildren();
-  for (const f of s.files) {
-    const li = document.createElement('li');
-    li.append(f.name, mb(f.bytes));
-    ul.append(li);
-  }
-}
-
-async function refresh() {
-  try { render(await api('/api/status')); } catch (e) { $('error').textContent = 'Connexion perdue : ' + e.message; }
-}
-
-async function loadSessions() {
-  try {
-    const list = await api('/api/sessions');
-    const box = $('sessions'); box.replaceChildren();
-    if (!list.length) { box.textContent = 'Aucune session.'; return; }
-    for (const s of list) {
-      const d = document.createElement('details');
-      const sum = document.createElement('summary'); sum.textContent = s.name + (s.location ? '  ·  ' + s.location : ''); d.append(sum);
-      const ul = document.createElement('ul');
-      for (const f of s.files) {
-        const li = document.createElement('li');
-        const a = document.createElement('a');
-        a.href = `/files/${encodeURIComponent(s.name)}/${encodeURIComponent(f.name)}`; a.textContent = f.name; a.download = '';
-        li.append(a, mb(f.bytes)); ul.append(li);
-      }
-      d.append(ul); box.append(d);
-    }
-  } catch (e) { $('sessions').textContent = e.message; }
-}
-
-const WARN_FS = {vfat:'FAT32 : fichiers limités à 4 Gio', exfat:'exFAT : à éviter sur Pi (lent)', ntfs:'NTFS : lent sur Pi 2', fuseblk:'NTFS/exFAT via FUSE : lent sur Pi 2'};
-let storageData = null;
-async function loadStorage() {
-  try {
-    const d = await api('/api/storage'); storageData = d;
-    const sel = $('storage');
-    if (document.activeElement !== sel) {
-      sel.replaceChildren();
-      for (const o of d.options) {
-        const opt = document.createElement('option');
-        opt.value = o.path; opt.selected = o.active;
-        opt.textContent = `${o.kind === 'sd' ? 'Carte SD' : 'Disque USB'} — ${o.label} · ${o.free_gb} Gio libres sur ${o.total_gb}` + (o.writable ? '' : ' · NON INSCRIPTIBLE');
-        sel.append(opt);
-      }
-    }
-    sel.disabled = d.recording;
-    const act = d.options.find(o => o.active);
-    const warn = act && WARN_FS[act.fstype] ? ' · ' + WARN_FS[act.fstype] : '';
-    $('storageinfo').textContent = act ? `${act.path} (${act.fstype || '?'})${warn}` : d.active;
-    if (!$('storageerr').dataset.sticky) $('storageerr').textContent = d.notice || '';
-  } catch (e) { $('storageerr').textContent = e.message; }
-}
-$('storage').onchange = async () => {
-  $('storageerr').dataset.sticky = '';
-  try { await api('/api/storage', {path: $('storage').value}); $('storageerr').textContent = ''; }
-  catch (e) { $('storageerr').textContent = e.message; $('storageerr').dataset.sticky = '1'; }
-  $('storage').blur(); await loadStorage(); loadSessions();
-};
-
-async function act(path, body) {
-  busy = true; $('error').textContent = '';
-  try { await api(path, body); } catch (e) { $('error').textContent = e.message; }
-  busy = false; await refresh(); loadSessions(); loadStorage();
-}
-$('start').onclick = () => act('/api/start', {name: $('name').value});
-$('stop').onclick = () => act('/api/stop', {});
 $('mixlink').textContent = location.origin + '/mix';
-refresh(); loadSessions(); loadStorage();
-setInterval(refresh, 1000);
-setInterval(loadStorage, 5000);
-setInterval(loadSessions, 15000);
+
+// Mute général : deux boutons « allumés » quand la sortie est coupée (état relu sur la console)
+const MUTES = {
+  buses: {el: 'mute-buses', on: ['🎧', 'Retours in-ear', 'actifs'], off: ['🔇', 'Retours COUPÉS', 'toucher pour rétablir'], part: ['⚠️', 'Retours en partie coupés', 'toucher pour tout couper']},
+  main:  {el: 'mute-main',  on: ['🔊', 'Mix général', 'actif'],     off: ['🔇', 'Mix général COUPÉ', 'toucher pour rétablir'], part: null},
+};
+let muteState = null;
+function renderMute(d) {
+  muteState = d;
+  for (const [target, m] of Object.entries(MUTES)) {
+    const st = d[target], b = $(m.el);
+    const [icon, title, sub] = !st.available ? ['⛔', target === 'main' ? 'Mix général' : 'Retours in-ear', 'indisponible']
+      : st.muted ? m.off : st.partial && m.part ? m.part : m.on;
+    b.replaceChildren();
+    const t = document.createElement('b'); t.textContent = `${icon} ${title}`;
+    const u = document.createElement('small'); u.textContent = sub;
+    b.append(t, u);
+    b.className = 'mutebtn' + (st.available && st.muted ? ' lit' : st.partial ? ' partial' : '');
+    b.disabled = !st.available;
+  }
+  $('mutecard').hidden = false;
+}
+async function pollMute() {
+  try { renderMute(await api('/api/mute')); $('muteerr').textContent = ''; }
+  catch (e) { if (!muteState) $('mutecard').hidden = true; else $('muteerr').textContent = e.message; }
+}
+for (const [target, m] of Object.entries(MUTES)) {
+  $(m.el).onclick = async () => {
+    const st = muteState && muteState[target];
+    if (!st) return;
+    try { renderMute(await api('/api/mute', {target, muted: !st.muted})); $('muteerr').textContent = ''; }
+    catch (e) { $('muteerr').textContent = e.message; }
+  };
+}
+pollMute(); setInterval(pollMute, 2000);
+const controls = initRecordControls();
+pollStatus(controls.render);
+setInterval(() => pollStatus(controls.render), 1000);
 </script>
 </body>
 </html>

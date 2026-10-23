@@ -89,6 +89,7 @@ if ! id xr18 >/dev/null 2>&1; then
     chage -d 0 xr18
 fi
 systemctl disable userconfig.service 2>/dev/null || true
+rm -f /etc/ssh/sshd_config.d/rename_user.conf   # bannière SSH « utilisateur à créer » : inutile, xr18 existe
 systemctl enable getty@tty1.service
 # SSH reste désactivé : il s'active en déposant un fichier « ssh » sur la partition de démarrage.
 

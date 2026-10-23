@@ -16,7 +16,8 @@ chmod +x "$TMP/arecord"
 cat > "$TMP/config.json" <<EOF
 {"output_dir": "$TMP/rec", "arecord_bin": "$TMP/arecord", "segment_seconds": 10,
  "min_free_gb": 0.1, "host": "0.0.0.0", "port": $PORT,
- "xr18_host": "127.0.0.1", "xr18_osc_port": $OSC_PORT}
+ "xr18_host": "127.0.0.1", "xr18_osc_port": $OSC_PORT,
+ "state_file": "$TMP/state.json", "settings_file": "$TMP/settings.json"}
 EOF
 cd "$ROOT"
 python3 tests/fake_xr18.py "$OSC_PORT" &  # faux XR18 : noms de voies et page /mix

@@ -9,7 +9,8 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
-from . import qr
+from . import audio, qr, system, xr18osc
+from .app import App
 from .ziputil import ZipStream
 from .mixer import MixError, MixerClient
 from .session import Recorder, RecorderError
@@ -20,7 +21,7 @@ _STATIC_FILE = re.compile(r"/static/([A-Za-z0-9_-]+\.(?:css|js))")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 
-def make_handler(rec: Recorder, mixer: MixerClient | None = None):
+def make_handler(rec: Recorder, app: App):
     class Handler(BaseHTTPRequestHandler):
         server_version = "xr18rec/0.1"
 
@@ -124,10 +125,18 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
                 return self._file(os.path.join(STATIC_DIR, "mix.html"))
             if path.startswith("/api/mix/"):
                 return self._mix_get(path[len("/api/mix/"):])
+            if path == "/settings":
+                return self._file(os.path.join(STATIC_DIR, "settings.html"))
+            if path == "/api/settings":
+                return self._json(app.settings())
+            if path == "/api/audio":
+                return self._json(audio.probe(rec.cfg, rec.is_recording()))
+            if path == "/api/system":
+                return self._json(system.info())
             if path == "/api/status":
                 return self._json(rec.status())
             if path == "/api/mute":
-                return self._mix_call(mixer.mute_state if mixer else None)
+                return self._mix_call(app.mixer.mute_state if app.mixer else None)
             if path == "/api/storage":
                 return self._json(rec.storage_info())
             if path == "/api/sessions":
@@ -141,7 +150,7 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
             return self._json({"error": "introuvable"}, 404)
 
         def _mix_call(self, fn):
-            if mixer is None:
+            if app.mixer is None:
                 return self._json({"error": "mix non configuré (xr18_host absent)"}, 503)
             try:
                 return self._json(fn())
@@ -150,22 +159,52 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
             except OscError as exc:
                 return self._json({"error": str(exc)}, 503)
 
+        def _app_call(self, fn):
+            """Réponse JSON pour les actions de la page de paramètres, avec le code HTTP adapté à l'erreur."""
+            try:
+                return self._json(fn())
+            except RecorderError as exc:
+                return self._json({"error": str(exc)}, 409)
+            except system.SystemActionError as exc:
+                return self._json({"error": str(exc)}, 502)
+            except OscError as exc:
+                return self._json({"error": str(exc)}, 503)
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 400)
+
         def _mix_get(self, rest: str):
             if rest == "buses":
-                return self._mix_call(mixer.bus_list if mixer else None)
+                return self._mix_call(app.mixer.bus_list if app.mixer else None)
             if rest.isdigit():
-                return self._mix_call(lambda: mixer.get_bus(int(rest)))
+                return self._mix_call(lambda: app.mixer.get_bus(int(rest)))
             return self._json({"error": "introuvable"}, 404)
 
         def do_POST(self):
             path = urlparse(self.path).path
             if path == "/api/mute":
                 body = self._body()
-                return self._mix_call(lambda: mixer.set_mute(str(body.get("target")), bool(body.get("muted"))))
+                return self._mix_call(lambda: app.mixer.set_mute(str(body.get("target")), bool(body.get("muted"))))
+            if path == "/api/settings":
+                return self._app_call(lambda: app.apply(self._body()))
+            if path == "/api/settings/reset":
+                return self._app_call(app.reset)
+            if path == "/api/xr18/discover":
+                return self._app_call(lambda: {"found": xr18osc.discover()})
+            if path == "/api/system/time":
+                return self._app_call(lambda: {"result": system.set_time(self._body().get("epoch"))})
+            if path == "/api/system/power":
+                def power():
+                    if rec.is_recording():
+                        raise RecorderError("impossible pendant un enregistrement")
+                    system.power(str(self._body().get("action")))
+                    return {"ok": True}
+                return self._app_call(power)
+            if path == "/api/system/restart-app":
+                return self._app_call(lambda: (app.restart_app(), {"ok": True})[1])
             m = re.fullmatch(r"/api/mix/(\d+)/send", path)
             if m:
                 body = self._body()
-                return self._mix_call(lambda: {"db": mixer.set_send(int(m.group(1)), str(body.get("source")),
+                return self._mix_call(lambda: {"db": app.mixer.set_send(int(m.group(1)), str(body.get("source")),
                                                                     body.get("db"))})
             try:
                 if path == "/api/start":
@@ -183,8 +222,10 @@ def make_handler(rec: Recorder, mixer: MixerClient | None = None):
 
 
 def make_server(rec: Recorder, host: str | None = None, port: int | None = None,
-                mixer: MixerClient | None = None) -> ThreadingHTTPServer:
+                mixer: MixerClient | None = None, app: App | None = None) -> ThreadingHTTPServer:
+    app = app or App(rec.cfg, rec, mixer)
     srv = ThreadingHTTPServer((host or rec.cfg.host, rec.cfg.port if port is None else port),
-                              make_handler(rec, mixer))
+                              make_handler(rec, app))
+    srv.app = app
     srv.daemon_threads = True
     return srv

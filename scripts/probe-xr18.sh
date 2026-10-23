@@ -11,3 +11,7 @@ if [ -z "$CARD" ]; then
 fi
 echo; echo "== paramètres matériels hw:CARD=$CARD,DEV=0 =="
 timeout 3 arecord -D "hw:CARD=$CARD,DEV=0" --dump-hw-params -d 1 /dev/null 2>&1 | head -30
+echo; echo "== formats et fréquences annoncés (/proc/asound/card*/stream0) =="
+cat /proc/asound/card*/stream0 2>/dev/null | grep -E "^[A-Za-z0-9 ]+$|Format|Channels|Rates|Momentary" | head -20 || true
+echo "(« Momentary freq » n'apparaît que pendant une capture. La fréquence de l'XR18 se règle sur la console :"
+echo " X Air Edit > Setup > Audio/MIDI ; le Pi doit demander la même.)"

@@ -10,9 +10,11 @@ import glob
 import json
 import signal
 import sys
+import threading
 
 from . import config as config_mod
 from . import reaper, wavtools, xr18osc
+from .app import App
 from .mixer import MixerClient, SOURCES
 from .server import make_server
 from .session import Recorder
@@ -20,10 +22,20 @@ from .session import Recorder
 
 def cmd_serve(args) -> int:
     cfg = config_mod.load(args.config)
+    applied = config_mod.apply_overlay(cfg)  # réglages faits dans l'interface, par-dessus le fichier
+    if applied:
+        print(f"réglages de l'interface appliqués : {', '.join(sorted(applied))}", flush=True)
     rec = Recorder(cfg)
     mixer = (MixerClient(cfg.xr18_host, cfg.xr18_osc_port, cfg.mix_max_db, cfg.mix_buses)
              if cfg.xr18_host else None)
-    srv = make_server(rec, mixer=mixer)
+    restart = {"asked": False}
+    app = App(cfg, rec, mixer, base_path=args.config)
+    srv = make_server(rec, mixer=mixer, app=app)
+
+    def request_restart():
+        restart["asked"] = True  # arrêt propre après la réponse HTTP ; systemd relance (code de sortie 3)
+        threading.Timer(0.5, srv.shutdown).start()
+    app.restart = request_restart
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
     print(f"xr18rec : http://{cfg.host}:{srv.server_address[1]}  sortie {cfg.output_dir}", flush=True)
     try:
@@ -31,11 +43,11 @@ def cmd_serve(args) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        if mixer:
-            mixer.close()
+        if app.mixer:
+            app.mixer.close()
         rec.shutdown()  # finalise proprement les WAV en cours
         srv.server_close()
-    return 0
+    return 3 if restart["asked"] else 0
 
 
 def cmd_split(args) -> int:
@@ -57,6 +69,18 @@ def cmd_info(args) -> int:
 def cmd_config(args) -> int:
     print(config_mod.dump(config_mod.load(args.config)))
     return 0
+
+
+def cmd_bootconfig(args) -> int:
+    from . import bootconfig
+    result = bootconfig.sync(args.boot, args.dest)
+    print(f"réglages de la partition de démarrage : {result}")
+    return 0  # même invalide : le service doit démarrer avec la configuration précédente
+
+
+def cmd_automount(args) -> int:
+    from . import automount
+    return automount.mount(args.device) if args.action == "mount" else automount.umount(args.device)
 
 
 def cmd_names(args) -> int:
@@ -117,6 +141,14 @@ def main(argv=None) -> int:
     s.add_argument("--out", required=True)
     s.add_argument("--prefix", default="ch")
     s.set_defaults(fn=cmd_split)
+    s = sub.add_parser("bootconfig", help="copie /boot/firmware/xr18rec.json vers /etc après validation")
+    s.add_argument("--boot", default="/boot/firmware")
+    s.add_argument("--dest", default="/etc/xr18rec.json")
+    s.set_defaults(fn=cmd_bootconfig)
+    s = sub.add_parser("automount", help="(root) monte ou démonte un disque USB ; appelé par systemd")
+    s.add_argument("action", choices=["mount", "umount"])
+    s.add_argument("device")
+    s.set_defaults(fn=cmd_automount)
     s = sub.add_parser("names", help="lit noms et couleurs des voies sur l'XR18 (OSC)")
     s.add_argument("--host", help="IP de l'XR18 (défaut : xr18_host de la configuration)")
     s.add_argument("--config")

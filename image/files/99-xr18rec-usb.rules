@@ -1,0 +1,2 @@
+# Disques USB (et NVMe/SATA externes) : montage automatique par un service systemd (voir xr18rec-mount@.service)
+ACTION=="add", SUBSYSTEM=="block", KERNEL=="sd*", ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", ENV{SYSTEMD_WANTS}+="xr18rec-mount@%k.service"

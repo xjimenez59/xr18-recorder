@@ -1,0 +1,31 @@
+ENREGISTREUR XR18 - PARTITION DE DEMARRAGE
+===========================================
+
+Cette partition de la carte SD est visible depuis Windows (lecteur "bootfs").
+Elle permet de regler le Pi sans l'ouvrir.
+
+1) REGLAGES : xr18rec.json
+   Modifier avec le Bloc-notes, enregistrer, remettre la carte dans le Pi et redemarrer.
+   Le fichier est verifie au demarrage. S'il contient une erreur, l'ancienne configuration
+   reste en vigueur et la raison est ecrite dans "xr18rec-erreur.txt" sur cette partition.
+
+   xr18_host     adresse IP de l'XR18 (ex. "192.168.1.50"). Necessaire pour les noms et
+                 couleurs des voies, le projet Reaper et la page des retours (/mix).
+                 Reserver cette adresse dans le routeur pour qu'elle ne change pas.
+   port          80 : l'adresse est alors http://xr18rec.local/ (sans numero de port)
+   format        S32_LE ou S24_3LE (voir ce que l'XR18 annonce)
+   rate          48000 ou 44100
+   segment_seconds   duree d'un fichier WAV (900 = 15 min). Maximum environ 1100 s a 18 voies.
+   min_free_gb   espace libre minimal pour demarrer un enregistrement
+   mix_buses     bus Aux proposes aux musiciens (1 a 6)
+   mix_max_db    plafond de securite des retours in-ear, en dB (0.0 = pas de gain au-dessus de 0 dB)
+
+2) ACCES : http://xr18rec.local/   (ou l'adresse IP du Pi dans le routeur)
+   QR code des retours musiciens : page d'accueil.
+
+3) DISQUE USB : brancher le disque (ext4 ou XFS conseille). Il est monte automatiquement et
+   apparait dans la liste "Emplacement des enregistrements".
+
+4) SSH (depannage) : desactive par defaut. Pour l'activer, creer sur cette partition un fichier
+   VIDE nomme "ssh" (sans extension), puis demarrer le Pi.
+   Utilisateur : xr18   Mot de passe initial : xr18rec   (a changer a la premiere connexion)

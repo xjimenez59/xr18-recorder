@@ -24,6 +24,16 @@ def header(ch, rate, bits, size):
 
 
 def main(argv):
+    if "-l" in argv:  # liste des cartes (détection depuis la page de paramètres)
+        print("**** List of CAPTURE Hardware Devices ****")
+        print("card 1: XR18 [XR18], device 0: USB Audio [USB Audio]")
+        return 0
+    if "--dump-hw-params" in argv:  # ce que la carte accepte
+        lines = ['HW Params of device "hw:CARD=XR18,DEV=0":', "--------------------",
+                 "ACCESS:  MMAP_INTERLEAVED RW_INTERLEAVED", "FORMAT:  S24_3LE S32_LE",
+                 "CHANNELS: 18", "RATE: [44100 48000]", "--------------------"]
+        print("\n".join(lines), file=sys.stderr)
+        return 0
     args = {"-c": "2", "-r": "48000", "-f": "S16_LE", "--max-file-time": "0"}
     i = 0
     name = None

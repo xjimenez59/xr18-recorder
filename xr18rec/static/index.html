@@ -19,7 +19,9 @@
   <div class="muted" id="cfg"></div>
   <div class="err" id="error"></div>
   <input type="text" id="name" class="namefield" placeholder="Nom de la session (facultatif)" maxlength="60">
-  <div style="margin-top:12px; text-align:right"><a class="btn ghost" id="manage" href="/rec">Sessions et stockage ›</a></div>
+  <div style="margin-top:12px; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap">
+    <a class="btn ghost" id="manage" href="/rec">Sessions et stockage ›</a>
+  </div>
 </div>
 
 <div class="card">
@@ -38,6 +40,14 @@
     <button class="mutebtn" id="mute-main" disabled></button>
   </div>
   <div class="err" id="muteerr"></div>
+</div>
+
+<div class="muted" id="nohost" hidden style="text-align:center">
+  Console XR18 non configurée : <a href="/settings">saisir son adresse dans les paramètres</a>.
+</div>
+
+<div style="text-align:center; margin:4px 0 20px">
+  <a class="gear" href="/settings" aria-label="Paramètres" title="Paramètres">⚙</a>
 </div>
 
 <script src="/static/app.js"></script>
@@ -66,8 +76,11 @@ function renderMute(d) {
   $('mutecard').hidden = false;
 }
 async function pollMute() {
-  try { renderMute(await api('/api/mute')); $('muteerr').textContent = ''; }
-  catch (e) { if (!muteState) $('mutecard').hidden = true; else $('muteerr').textContent = e.message; }
+  try { renderMute(await api('/api/mute')); $('muteerr').textContent = ''; $('nohost').hidden = true; }
+  catch (e) {
+    if (!muteState) $('mutecard').hidden = true; else $('muteerr').textContent = e.message;
+    $('nohost').hidden = !/non configuré/.test(e.message);  // première installation : adresse de l'XR18 à saisir
+  }
 }
 for (const [target, m] of Object.entries(MUTES)) {
   $(m.el).onclick = async () => {

@@ -41,3 +41,6 @@ a.btn.disabled { opacity:.35; pointer-events:none; }
 .recbtn.stopping { background:#374151; }
 .recbtn.confirm { background:var(--rec); animation:pulse 1s infinite; }
 .namefield { width:100%; margin-top:10px; padding:10px 12px; flex:none; }
+.gear { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; font-size:1.5rem;
+        color:var(--muted); text-decoration:none; border-radius:50%; opacity:.7; }
+.gear:hover, .gear:focus-visible { opacity:1; color:var(--accent); }

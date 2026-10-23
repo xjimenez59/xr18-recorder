@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import os
 from dataclasses import asdict, dataclass, field, fields
 
 # Octets par échantillon selon le format ALSA
@@ -23,6 +25,8 @@ class Config:
     output_dir: str = "/var/lib/xr18rec/recordings"
     usb_auto: bool = True
     state_file: str = "/var/lib/xr18rec/state.json"
+    # Réglages modifiés depuis la page /settings : appliqués par-dessus ce fichier de configuration.
+    settings_file: str = "/var/lib/xr18rec/settings.json"
     segment_seconds: int = 900  # un fichier toutes les 15 min (reste < 4 Gio)
     min_free_gb: float = 2.0  # refuse de démarrer sous ce seuil, arrête si le seuil est franchi
     arecord_bin: str = "arecord"
@@ -69,7 +73,7 @@ class Config:
 def load(path: str | None = None) -> Config:
     cfg = Config()
     if path:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:  # tolère le BOM ajouté par certains éditeurs Windows
             raw = json.load(f)
         known = {f.name for f in fields(Config)}
         unknown = set(raw) - known
@@ -79,6 +83,55 @@ def load(path: str | None = None) -> Config:
             setattr(cfg, k, v)
     cfg.validate()
     return cfg
+
+
+# Réglages modifiables depuis l'interface (les autres exigent de modifier le fichier de configuration).
+EDITABLE = ("xr18_host", "device", "rate", "format", "channels", "segment_seconds", "min_free_gb",
+            "mix_max_db", "mix_buses")
+AUDIO_KEYS = ("device", "rate", "format", "channels", "segment_seconds")  # figés pendant un enregistrement
+
+
+def apply_overlay(cfg: Config) -> dict:
+    """Applique les réglages enregistrés par l'interface ; renvoie ce qui a été appliqué.
+
+    Un fichier absent ou invalide est ignoré (la configuration de base reste valable).
+    """
+    try:
+        with open(cfg.settings_file, encoding="utf-8-sig") as f:
+            raw = json.load(f)
+        changes = {k: v for k, v in raw.items() if k in EDITABLE}
+        dataclasses.replace(cfg, **changes).validate()
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
+    for k, v in changes.items():
+        setattr(cfg, k, v)
+    return changes
+
+
+def read_overlay(cfg: Config) -> dict:
+    try:
+        with open(cfg.settings_file, encoding="utf-8-sig") as f:
+            raw = json.load(f)
+        return {k: v for k, v in raw.items() if k in EDITABLE} if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_overlay(cfg: Config, changes: dict) -> None:
+    """Ajoute `changes` aux réglages de l'interface (écriture atomique)."""
+    merged = {**read_overlay(cfg), **changes}
+    os.makedirs(os.path.dirname(cfg.settings_file) or ".", exist_ok=True)
+    tmp = cfg.settings_file + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(merged, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, cfg.settings_file)
+
+
+def clear_overlay(cfg: Config) -> None:
+    try:
+        os.remove(cfg.settings_file)
+    except OSError:
+        pass
 
 
 def dump(cfg: Config) -> str:

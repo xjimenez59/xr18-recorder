@@ -1,0 +1,11 @@
+// Autorise l'application (utilisateur système xr18rec) à régler l'heure, redémarrer et éteindre le Pi
+// depuis la page de paramètres. Aucun autre droit.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "xr18rec" &&
+        (action.id.indexOf("org.freedesktop.login1.power-off") == 0 ||
+         action.id.indexOf("org.freedesktop.login1.reboot") == 0 ||
+         action.id == "org.freedesktop.timedate1.set-time" ||
+         action.id == "org.freedesktop.timedate1.set-ntp")) {
+        return polkit.Result.YES;
+    }
+});

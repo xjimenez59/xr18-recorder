@@ -1,0 +1,70 @@
+name: Image Raspberry Pi
+
+# Construit l'image à flasher (Raspberry Pi OS Lite 32 bits + enregistreur XR18).
+# Déclenchement : publication d'une version (tag vX.Y.Z) ou lancement manuel.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # version de Raspberry Pi OS Bookworm
+      - run: python -m unittest discover -s tests
+
+  image:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version de l'image
+        run: echo "IMAGE_VERSION=$(git describe --tags --always)" >> "$GITHUB_ENV"
+
+      - name: Personnalisation de Raspberry Pi OS Lite (32 bits, émulation ARM)
+        id: build
+        uses: pguyot/arm-runner-action@v2
+        with:
+          base_image: raspios_lite:latest
+          image_additional_mb: 512
+          copy_repository_path: /opt/xr18rec-src
+          import_github_env: true
+          shell: bash
+          commands: |
+            bash image/customize.sh
+
+      - name: Compression
+        run: |
+          out="xr18rec-${IMAGE_VERSION}.img"
+          sudo mv "${{ steps.build.outputs.image }}" "$out"
+          sudo chown "$USER" "$out"
+          xz -T0 -6 "$out"
+          sha256sum "$out.xz" > "$out.xz.sha256"
+          ls -lh xr18rec-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xr18rec-image
+          path: |
+            xr18rec-*.img.xz
+            xr18rec-*.img.xz.sha256
+          retention-days: 14
+          compression-level: 0   # déjà compressé
+
+      - name: Publication de la version
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            xr18rec-*.img.xz
+            xr18rec-*.img.xz.sha256

@@ -1,0 +1,11 @@
+[Unit]
+Description=Montage du disque USB %I
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/xr18rec
+ExecStart=/usr/bin/python3 -m xr18rec automount mount /dev/%I
+ExecStop=/usr/bin/python3 -m xr18rec automount umount /dev/%I

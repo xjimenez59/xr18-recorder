@@ -19,7 +19,9 @@ function renderStatus(s) {
   set('elapsed', fmt(s.elapsed_s));
   set('free', s.free_gb);
   set('overruns', s.overruns);
-  set('cfg', `${s.config.device} · ${s.config.channels} voies · ${s.config.rate} Hz · ${s.config.format}`);
+  const real = s.actual ? s.actual.rate : s.config.rate;
+  const gap = s.actual && s.actual.rate !== s.config.rate ? ' ⚠ réglage ' + s.config.rate + ' Hz' : '';
+  set('cfg', `${s.config.device} · ${s.config.channels} voies · ${real} Hz${gap} · ${s.config.format}`);
   set('error', s.error || '');
   document.title = (s.state === 'recording' ? '● ' : '') + 'Enregistreur XR18';
 }

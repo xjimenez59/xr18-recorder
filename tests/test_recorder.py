@@ -27,7 +27,8 @@ def make_cfg(tmp, **kw):
     os.chmod(wrapper, 0o755)
     cfg = config_mod.Config(output_dir=os.path.join(tmp, "rec"), arecord_bin=wrapper,
                             segment_seconds=1, min_free_gb=0.0, port=0, host="127.0.0.1",
-                            state_file=os.path.join(tmp, "state.json"))
+                            state_file=os.path.join(tmp, "state.json"),
+                            settings_file=os.path.join(tmp, "settings.json"))
     cfg.validate()
     return cfg
 
@@ -381,6 +382,8 @@ class FakeXR18Mixer:
             for addr, args in xr18osc.decode_packet(data):
                 if addr == "/xremote":
                     self.subscribers.add(peer)
+                elif addr == "/xinfo":
+                    self.sock.sendto(xr18osc.encode("/xinfo", "192.168.1.50", "XR18-test", "XR18", "1.18"), peer)
                 elif args:
                     self.values[addr] = args[0]
                     self.sets.append((addr, args[0]))

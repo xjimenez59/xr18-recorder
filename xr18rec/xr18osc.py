@@ -7,8 +7,11 @@ manquantes sont renvoyées.
 
 from __future__ import annotations
 
+import ipaddress
+import re
 import socket
 import struct
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 
@@ -182,3 +185,69 @@ def fetch_layout(host: str, port: int = OSC_PORT, timeout: float = 3.0) -> Layou
     layout = Layout([strip(f"/ch/{i:02d}/config") for i in range(1, NUM_INPUTS + 1)],
                     strip("/lr/config"), sorted(pending))
     return layout
+
+
+# ---- détection de la console sur le réseau ----------------------------------------------------
+def local_addresses() -> list[tuple[ipaddress.IPv4Address, ipaddress.IPv4Network]]:
+    """Adresses IPv4 non locales de ce Pi avec leur réseau (réseaux plus larges que /22 ramenés à /24)."""
+    out = []
+    try:
+        text = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        text = ""
+    for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", text):
+        ip = ipaddress.IPv4Address(m.group(1))
+        if ip.is_loopback or ip.is_link_local:
+            continue
+        prefix = int(m.group(2))
+        out.append((ip, ipaddress.ip_network(f"{ip}/{prefix if prefix >= 22 else 24}", strict=False)))
+    if not out:  # repli sans iproute2 : adresse de la route par défaut, réseau supposé en /24
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("192.0.2.1", 9))  # aucun paquet n'est émis : sert à connaître l'interface choisie
+                ip = ipaddress.IPv4Address(s.getsockname()[0])
+            if not ip.is_loopback:
+                out.append((ip, ipaddress.ip_network(f"{ip}/24", strict=False)))
+        except OSError:
+            pass
+    return out
+
+
+def discover(networks=None, timeout: float = 2.5, port: int = OSC_PORT) -> list[dict]:
+    """Cherche des consoles X Air : requête `/xinfo` envoyée à chaque adresse du réseau (pas de broadcast,
+    souvent filtré). L'adresse retenue est celle de l'expéditeur de la réponse."""
+    local = local_addresses()
+    nets = list(networks) if networks is not None else [net for _ip, net in local]
+    own = {str(ip) for ip, _net in local}
+    request = encode("/xinfo")
+    found: dict[str, dict] = {}
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setblocking(False)
+        for net in nets:
+            for host in net.hosts():
+                if str(host) in own:
+                    continue
+                try:
+                    sock.sendto(request, (str(host), port))
+                except (BlockingIOError, OSError):
+                    pass  # tampon plein ou hôte injoignable : on passe au suivant
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            sock.settimeout(max(0.05, deadline - time.monotonic()))
+            try:
+                data, (src, _p) = sock.recvfrom(2048)
+                msgs = decode_packet(data)
+            except socket.timeout:
+                break
+            except (OscError, OSError):
+                continue
+            for addr, args in msgs:
+                if addr in ("/xinfo", "/info"):
+                    strings = [str(a) for a in args]
+                    found[src] = {"ip": src, "name": strings[1] if len(strings) > 1 else "",
+                                  "model": strings[2] if len(strings) > 2 else "",
+                                  "version": strings[3] if len(strings) > 3 else ""}
+    finally:
+        sock.close()
+    return sorted(found.values(), key=lambda d: ipaddress.IPv4Address(d["ip"]))

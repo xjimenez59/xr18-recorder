@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paramètres</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  label { display:block; margin-top:12px; font-weight:600; }
+  label small { font-weight:400; color:var(--muted); }
+  input[type=number], input[type=text].full { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #8884; background:transparent; color:inherit; font-size:1rem; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .buses { display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
+  .buses label { margin:0; font-weight:500; display:flex; align-items:center; gap:6px; }
+  .found { margin-top:8px; display:grid; gap:8px; }
+  .found button { text-align:left; }
+  .ok { color:var(--ok); } .warn { color:#f59e0b; }
+  .danger { background:var(--rec); }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  fieldset { border:0; padding:0; margin:0; min-width:0; }
+  fieldset:disabled { opacity:.55; }
+  .msg { margin-top:10px; min-height:1.4em; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Paramètres</h1>
+  <a class="btn ghost" href="/">‹ Accueil</a>
+</div>
+
+<div class="card">
+  <b>Console XR18</b>
+  <label for="xr18_host">Adresse IP <small>(noms de voies, retours musiciens, projet Reaper)</small></label>
+  <input type="text" id="xr18_host" class="full" placeholder="ex. 192.168.1.50" inputmode="decimal" autocomplete="off">
+  <div class="actions">
+    <button class="ghost" id="detect">Détecter sur le réseau</button>
+    <button class="ghost" id="testxr">Tester la connexion</button>
+  </div>
+  <div id="found" class="found"></div>
+  <div class="msg muted" id="xrmsg"></div>
+</div>
+
+<fieldset id="audioset" class="card">
+  <b>Audio</b>
+  <div class="two">
+    <div><label for="rate">Fréquence</label>
+      <select id="rate"><option value="44100">44 100 Hz</option><option value="48000">48 000 Hz</option></select></div>
+    <div><label for="format">Format</label>
+      <select id="format"><option>S24_3LE</option><option>S32_LE</option><option>S16_LE</option></select></div>
+  </div>
+  <div class="two">
+    <div><label for="channels">Voies</label><input type="number" id="channels" min="1" max="64"></div>
+    <div><label for="segment_seconds">Fichier de <small>(secondes)</small></label><input type="number" id="segment_seconds" min="10" step="10"></div>
+  </div>
+  <label for="device">Interface ALSA</label>
+  <input type="text" id="device" class="full" autocomplete="off">
+  <div class="muted" style="margin-top:8px">L'XR18 impose sa propre fréquence (44,1 ou 48 kHz), réglée sur la console : X Air Edit › Setup › Audio/MIDI. Le Pi doit s'y accorder.</div>
+  <div class="actions"><button class="ghost" id="probe">Relever ce que la carte accepte</button></div>
+  <div id="probeout" class="muted" style="margin-top:8px"></div>
+  <div id="actual" class="muted"></div>
+</fieldset>
+
+<div class="card">
+  <b>Enregistrement et retours</b>
+  <div class="two">
+    <div><label for="min_free_gb">Disque libre minimal <small>(Gio)</small></label><input type="number" id="min_free_gb" min="0" step="0.5"></div>
+    <div><label for="mix_max_db">Plafond des retours <small>(dB)</small></label><input type="number" id="mix_max_db" min="-90" max="10" step="0.5"></div>
+  </div>
+  <label>Bus proposés aux musiciens <small>(sorties Aux)</small></label>
+  <div class="buses" id="buses"></div>
+</div>
+
+<div class="card">
+  <div class="actions" style="margin-top:0">
+    <button id="save">Enregistrer les réglages</button>
+    <button class="ghost" id="reset">Revenir aux réglages d'origine</button>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div class="muted" id="modified"></div>
+</div>
+
+<div class="card">
+  <b>Système</b>
+  <div class="muted" id="sys" style="margin-top:6px"></div>
+  <div class="actions">
+    <button class="ghost" id="settime">Régler l'heure du Pi sur celle de cet appareil</button>
+  </div>
+  <div class="msg muted" id="timemsg"></div>
+  <div class="actions">
+    <button class="ghost" id="restartapp">Redémarrer l'application</button>
+    <button class="ghost" id="reboot">Redémarrer le Pi</button>
+    <button class="danger" id="poweroff">Éteindre le Pi</button>
+  </div>
+  <div class="msg muted" id="powermsg"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const NUM = ['channels', 'segment_seconds', 'min_free_gb', 'mix_max_db'];
+const TXT = ['xr18_host', 'device'];
+const SEL = ['rate', 'format'];
+let current = null;
+
+function say(id, text, cls) { const e = $(id); e.textContent = text; e.className = 'msg ' + (cls || 'muted'); }
+
+function fill(d) {
+  current = d;
+  for (const k of NUM) $(k).value = d.values[k];
+  for (const k of TXT) $(k).value = d.values[k];
+  for (const k of SEL) $(k).value = String(d.values[k]);
+  const box = $('buses'); box.replaceChildren();
+  for (let b = 1; b <= 6; b++) {
+    const l = document.createElement('label'), c = document.createElement('input');
+    c.type = 'checkbox'; c.value = b; c.checked = d.values.mix_buses.includes(b);
+    l.append(c, `Aux ${b}`); box.append(l);
+  }
+  $('audioset').disabled = d.recording;
+  $('modified').textContent = d.modified.length ? `Modifiés depuis l'interface : ${d.modified.join(', ')}` : '';
+  if (d.recording) say('msg', "Réglages audio verrouillés pendant l'enregistrement.", 'warn');
+}
+
+function collect() {
+  const v = {};
+  for (const k of NUM) v[k] = Number($(k).value);
+  for (const k of ['channels', 'segment_seconds']) v[k] = Math.round(v[k]);
+  for (const k of TXT) v[k] = $(k).value.trim();
+  v.rate = Number($('rate').value); v.format = $('format').value;
+  v.mix_buses = [...$('buses').querySelectorAll('input:checked')].map(c => Number(c.value));
+  return v;
+}
+
+async function load() {
+  try { fill(await api('/api/settings')); } catch (e) { say('msg', e.message, 'warn'); }
+  loadSystem(); showActual();
+}
+
+async function showActual() {
+  try {
+    const s = await api('/api/status');
+    if (s.actual) {
+      const same = s.actual.rate === Number($('rate').value);
+      $('actual').innerHTML = `Dernière prise : ${s.actual.rate} Hz, ${s.actual.bits} bits, ${s.actual.channels} voies ` +
+        (same ? '<span class="ok">✓ conforme au réglage</span>' : '<span class="warn">⚠ différent du réglage actuel</span>');
+    }
+  } catch (e) { /* facultatif */ }
+}
+
+$('save').onclick = async () => {
+  say('msg', 'Enregistrement…');
+  try {
+    const before = current.values.xr18_host;
+    const d = await api('/api/settings', collect());
+    fill(d); say('msg', 'Réglages enregistrés et appliqués.', 'ok');
+    if (d.values.xr18_host !== before) $('testxr').click();
+  } catch (e) { say('msg', e.message, 'warn'); }
+};
+
+$('reset').onclick = async () => {
+  if (!confirm("Abandonner les réglages faits ici et revenir à ceux de la carte SD ?")) return;
+  try { fill(await api('/api/settings/reset', {})); say('msg', "Réglages d'origine rétablis.", 'ok'); }
+  catch (e) { say('msg', e.message, 'warn'); }
+};
+
+$('detect').onclick = async () => {
+  const box = $('found'); box.replaceChildren(); say('xrmsg', 'Recherche sur le réseau (quelques secondes)…');
+  $('detect').disabled = true;
+  try {
+    const {found} = await api('/api/xr18/discover', {});
+    if (!found.length) { say('xrmsg', "Aucune console trouvée. Vérifiez qu'elle est allumée et sur le même réseau, ou saisissez l'adresse.", 'warn'); return; }
+    say('xrmsg', `${found.length} console(s) trouvée(s) :`, 'ok');
+    for (const f of found) {
+      const b = document.createElement('button'); b.className = 'ghost';
+      b.textContent = `${f.model || 'Console'} ${f.name || ''} · ${f.ip}${f.version ? ' · v' + f.version : ''}  — utiliser`;
+      b.onclick = () => { $('xr18_host').value = f.ip; say('xrmsg', `Adresse ${f.ip} choisie : pensez à enregistrer.`, 'ok'); };
+      box.append(b);
+    }
+  } catch (e) { say('xrmsg', e.message, 'warn'); }
+  finally { $('detect').disabled = false; }
+};
+
+$('testxr').onclick = async () => {
+  say('xrmsg', 'Test de la connexion…');
+  try {
+    const buses = await api('/api/mix/buses');
+    say('xrmsg', `Console joignable ✓ (${buses.map(b => b.name).join(', ')})`, 'ok');
+  } catch (e) { say('xrmsg', 'Console non joignable : ' + e.message, 'warn'); }
+};
+
+$('probe').onclick = async () => {
+  const out = $('probeout'); out.textContent = 'Relevé en cours…';
+  try {
+    const r = await api('/api/audio');
+    if (r.error) { out.innerHTML = `<span class="warn">${r.error.replace(/</g, '&lt;')}</span>`; return; }
+    const p = r.params, c = r.checks;
+    const mark = ok => ok === null ? '' : ok ? ' <span class="ok">✓</span>' : ' <span class="warn">⚠ ≠ réglage</span>';
+    out.innerHTML = `Cartes : ${r.cards.map(x => x.name).join(', ') || 'aucune'}<br>` +
+      `Fréquences acceptées : ${p.rates.join(', ') || '?'}${mark(c.rate)}<br>` +
+      `Formats : ${p.formats.join(', ') || '?'}${mark(c.format)}<br>` +
+      `Voies : ${p.channels.length > 4 ? p.channels[0] + '–' + p.channels[p.channels.length - 1] : p.channels.join(', ') || '?'}${mark(c.channels)}`;
+    if (p.rates.length === 1) $('rate').value = String(p.rates[0]);
+  } catch (e) { out.textContent = e.message; }
+};
+
+async function loadSystem() {
+  try {
+    const s = await api('/api/system');
+    const diff = Math.round(Date.now() / 1000 - s.time);
+    const ntp = s.ntp_synchronized === true ? ' · synchronisée par Internet' : '';
+    const dt = new Date(s.time * 1000).toLocaleString('fr-FR');
+    $('sys').innerHTML = `Version ${s.version} · nom ${s.hostname} · IP ${s.ips.join(', ') || '?'}<br>` +
+      `Heure du Pi : ${dt}${ntp} ` + (Math.abs(diff) > 60 ? `<span class="warn">(écart de ${Math.abs(diff) > 3600 ? Math.round(Math.abs(diff) / 3600) + ' h' : Math.round(Math.abs(diff) / 60) + ' min'} avec cet appareil)</span>` : '<span class="ok">✓ à l\'heure</span>');
+  } catch (e) { $('sys').textContent = e.message; }
+}
+
+$('settime').onclick = async () => {
+  try { const r = await api('/api/system/time', {epoch: Math.floor(Date.now() / 1000)}); say('timemsg', r.result, 'ok'); loadSystem(); }
+  catch (e) { say('timemsg', e.message, 'warn'); }
+};
+
+async function power(action, text) {
+  if (!confirm(text)) return;
+  try { await api('/api/system/power', {action}); say('powermsg', action === 'poweroff' ? 'Extinction en cours : attendez que la LED verte cesse de clignoter avant de couper le courant.' : 'Redémarrage en cours…', 'ok'); }
+  catch (e) { say('powermsg', e.message, 'warn'); }
+}
+$('poweroff').onclick = () => power('poweroff', 'Éteindre le Pi ? L’interface ne sera plus accessible.');
+$('reboot').onclick = () => power('reboot', 'Redémarrer le Pi ?');
+$('restartapp').onclick = async () => {
+  if (!confirm("Redémarrer l'application (quelques secondes) ?")) return;
+  try {
+    await api('/api/system/restart-app', {}); say('powermsg', "Redémarrage de l'application…", 'ok');
+    const wait = async () => { try { await api('/api/status'); location.reload(); } catch (e) { setTimeout(wait, 1500); } };
+    setTimeout(wait, 2500);
+  } catch (e) { say('powermsg', e.message, 'warn'); }
+};
+
+load();
+</script>
+</body>
+</html>

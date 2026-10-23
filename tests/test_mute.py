@@ -55,8 +55,8 @@ class MuteTests(unittest.TestCase):
         self.mx.set_mute("buses", True)
         self.assertTrue(self.mx.mute_state()["buses"]["muted"])
         self.mx.set_mute("buses", False)
-        self.assertTrue(self.wait(lambda: self.xr.values["/bus/1/mix/on"] == 1))
-        self.assertEqual([self.xr.values[f"/bus/{b}/mix/on"] for b in (1, 2, 3)], [1, 0, 1])
+        states = lambda: [self.xr.values[f"/bus/{b}/mix/on"] for b in (1, 2, 3)]
+        self.assertTrue(self.wait(lambda: states() == [1, 0, 1]), states())  # trois messages UDP distincts
 
     def test_main_mute_and_external_change(self):
         self.mx.mute_state()

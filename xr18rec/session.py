@@ -13,7 +13,7 @@ import time
 from collections import deque
 from datetime import datetime
 
-from . import storage, xr18osc
+from . import storage, wavtools, xr18osc
 from .config import Config
 from .reaper import LAYOUT_FILE, load_layout, write_project
 
@@ -86,6 +86,7 @@ class Recorder:
                 "files": files,
                 "error": self._error,
                 "storage": self._storage_summary(),
+                "actual": self._actual_format(),
                 "stderr_tail": list(self._stderr_tail),
                 "config": {
                     "device": self.cfg.device, "channels": self.cfg.channels,
@@ -93,6 +94,17 @@ class Recorder:
                     "segment_seconds": self.cfg.segment_seconds,
                 },
             }
+
+    def _actual_format(self) -> dict | None:
+        """Fréquence, format et voies réellement écrits (d'après l'en-tête du premier WAV de la session)."""
+        if not self._session_dir:
+            return None
+        try:
+            first = min(n for n in os.listdir(self._session_dir) if n.lower().endswith(".wav"))
+            info = wavtools.read_info(os.path.join(self._session_dir, first))
+        except (OSError, ValueError):
+            return None  # pas encore de fichier, ou en-tête illisible
+        return {"rate": info.rate, "bits": info.bits, "channels": info.channels}
 
     @staticmethod
     def _list_files(directory: str) -> list[dict]:

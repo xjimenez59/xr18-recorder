@@ -1,0 +1,12 @@
+{
+  "device": "hw:CARD=XR18,DEV=0",
+  "channels": 18,
+  "rate": 48000,
+  "format": "S32_LE",
+  "segment_seconds": 900,
+  "min_free_gb": 2.0,
+  "port": 80,
+  "xr18_host": "",
+  "mix_buses": [1, 2, 3, 4, 5, 6],
+  "mix_max_db": 0.0
+}

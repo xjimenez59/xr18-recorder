@@ -25,6 +25,7 @@ class Config:
     # et le choix se fait dans l'interface ; il est mémorisé dans state_file.
     output_dir: str = "/var/lib/xr18rec/recordings"
     usb_auto: bool = True
+    play_mix: list = field(default_factory=lambda: [17, 18])  # voies USB (1-based) écoutées dans « Écouter » : le mix de la console
     update_repo: str = "xjimenez59/xr18-recorder"  # dépôt GitHub public où chercher les mises à jour
     state_file: str = "/var/lib/xr18rec/state.json"
     # Réglages modifiés depuis la page /settings : appliqués par-dessus ce fichier de configuration.
@@ -68,6 +69,9 @@ class Config:
             raise ValueError("min_free_gb < 0")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.update_repo or ""):
             raise ValueError("update_repo : attendu « compte/dépôt »")
+        if not (isinstance(self.play_mix, list) and len(self.play_mix) == 2
+                and all(isinstance(v, int) and 1 <= v <= 64 for v in self.play_mix)):
+            raise ValueError("play_mix : deux numéros de voies entre 1 et 64")
         if not all(isinstance(b, int) and 1 <= b <= 6 for b in self.mix_buses):
             raise ValueError("mix_buses : entiers de 1 à 6")
         if not -90 <= self.mix_max_db <= 10:

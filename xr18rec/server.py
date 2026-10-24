@@ -9,7 +9,7 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
-from . import audio, qr, system, xr18osc
+from . import audio, playback, qr, reaper, system, xr18osc
 from .app import App
 from .updater import UpdateError
 from .ziputil import ZipStream
@@ -18,6 +18,8 @@ from .session import Recorder, RecorderError
 from .xr18osc import OscError
 
 _HOST_OK = re.compile(r"[A-Za-z0-9.\-]{1,100}(:\d{1,5})?")
+_PLAY_MIX = re.compile(r"/play/([^/]+)/mix\.wav")
+_RANGE = re.compile(r"bytes=(\d*)-(\d*)")
 _STATIC_FILE = re.compile(r"/static/([A-Za-z0-9_-]+\.(?:css|js))")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -69,6 +71,67 @@ def make_handler(rec: Recorder, app: App):
                     except (BrokenPipeError, ConnectionResetError):
                         break
 
+        def _session_dir(self, session: str) -> str | None:
+            if not session or session in (".", "..") or "/" in session or "\\" in session:
+                return None
+            return rec.resolve_session(session)
+
+        def _play_meta(self, session: str):
+            directory = self._session_dir(session)
+            if directory is None:
+                return self._json({"error": "session introuvable"}, 404)
+            try:
+                src = playback.MixSource(directory, tuple(rec.cfg.play_mix))
+            except playback.PlaybackError as exc:
+                return self._json({"error": str(exc)}, 404)
+            names = reaper.channel_names(reaper.load_layout(directory), src.channels)
+            return self._json({
+                "session": session, "duration_s": round(src.duration_s, 1), "rate": src.rate,
+                "channels": src.channels, "mix": [src.left + 1, src.right + 1], "mix_fallback": src.fallback,
+                "mix_names": [names[src.left], names[src.right]], "segments": len(src.segments),
+                "blocked": rec.is_recording(), "url": f"/play/{session}/mix.wav"})
+
+        def _play_mix(self, session: str):
+            """Mix de la console en WAV stéréo 16 bits, avec requêtes à plage d'octets (positionnement dans le temps)."""
+            if rec.is_recording():  # la lecture solliciterait le bus USB déjà occupé par la capture
+                return self._json({"error": "écoute indisponible pendant un enregistrement"}, 409)
+            directory = self._session_dir(session)
+            if directory is None:
+                return self._json({"error": "session introuvable"}, 404)
+            try:
+                src = playback.MixSource(directory, tuple(rec.cfg.play_mix))
+            except playback.PlaybackError as exc:
+                return self._json({"error": str(exc)}, 404)
+            size, first, last, status = src.size, 0, src.size - 1, 200
+            requested = self.headers.get("Range")
+            m = _RANGE.fullmatch(requested.strip()) if requested else None
+            if m and (m.group(1) or m.group(2)):
+                if m.group(1):
+                    first = int(m.group(1))
+                    last = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+                else:  # « -N » : les N derniers octets
+                    first, last = max(0, size - int(m.group(2))), size - 1
+                if first > last or first >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = 206
+            self.send_response(status)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(last - first + 1))
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                for piece in src.iter_range(first, last):
+                    self.wfile.write(piece)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.close_connection = True  # le navigateur a changé de position ou arrêté la lecture
+
         def _zip(self, session: str):
             """Session complète en ZIP (WAV + projet Reaper) pour la déposer telle quelle sur le PC."""
             if not session or session in (".", "..") or "/" in session or "\\" in session:
@@ -111,6 +174,13 @@ def make_handler(rec: Recorder, app: App):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            m = _PLAY_MIX.fullmatch(path)
+            if m:
+                return self._play_mix(m.group(1))
+            if path == "/play":
+                return self._file(os.path.join(STATIC_DIR, "play.html"))
+            if path.startswith("/api/play/"):
+                return self._play_meta(path[len("/api/play/"):])
             if path.startswith("/zip/"):
                 return self._zip(path[len("/zip/"):])
             if path == "/favicon.ico":  # pas d'icône : évite un 404 à chaque ouverture

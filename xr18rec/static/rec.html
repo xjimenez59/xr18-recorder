@@ -53,7 +53,7 @@ function renderFiles(s) {
 let isRecording = false;
 const gio = b => b >= 1e9 ? (b / 1073741824).toFixed(1) + ' Gio' : mb(b);
 function applyZipState() {
-  document.querySelectorAll('a.zip').forEach(a => {
+  document.querySelectorAll('a.zip, a.play').forEach(a => {
     a.classList.toggle('disabled', isRecording);
     a.title = isRecording ? 'Indisponible pendant un enregistrement (ralentirait le Pi)' : '';
   });
@@ -75,7 +75,11 @@ async function loadSessions() {
       title.append(nm, meta);
       const zip = document.createElement('a'); zip.className = 'btn ghost zip';
       zip.href = `/zip/${encodeURIComponent(s.name)}`; zip.textContent = '⬇ Zip'; zip.download = `${s.name}.zip`;
-      head.append(title, zip);
+      if (s.files.some(f => /^take.*\.wav$/i.test(f.name))) {
+        const play = document.createElement('a'); play.className = 'btn ghost play';
+        play.href = `/play?s=${encodeURIComponent(s.name)}`; play.textContent = '▶ Écouter';
+        head.append(title, play, zip);
+      } else head.append(title, zip);
       const d = document.createElement('details');
       const sum = document.createElement('summary'); sum.textContent = 'Fichiers'; sum.className = 'muted'; d.append(sum);
       const ul = document.createElement('ul');

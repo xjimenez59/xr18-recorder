@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Écoute</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .time { display:flex; justify-content:space-between; font-variant-numeric:tabular-nums; font-size:1.1rem; margin-top:6px; }
+  input[type=range].seek { width:100%; height:44px; accent-color:var(--accent); margin:8px 0 0; }
+  .transport { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin-top:12px; }
+  .transport button { padding:14px 0; font-size:1.1rem; }
+  .transport .main { font-size:1.5rem; background:var(--accent); }
+  .big { font-size:1.4rem; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Écoute</h1>
+  <a class="btn ghost" href="/rec">‹ Sessions</a>
+</div>
+
+<div class="card">
+  <div class="big" id="name">…</div>
+  <div class="muted" id="meta"></div>
+  <div class="err" id="err"></div>
+  <input type="range" class="seek" id="seek" min="0" max="0" step="1" value="0" disabled aria-label="Position dans la prise">
+  <div class="time"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+  <div class="transport">
+    <button class="ghost" id="b60" aria-label="Reculer d'une minute" disabled>−60 s</button>
+    <button class="ghost" id="b10" aria-label="Reculer de 10 secondes" disabled>−10 s</button>
+    <button class="main" id="play" aria-label="Lecture" disabled>▶</button>
+    <button class="ghost" id="f10" aria-label="Avancer de 10 secondes" disabled>+10 s</button>
+    <button class="ghost" id="f60" aria-label="Avancer d'une minute" disabled>+60 s</button>
+  </div>
+  <audio id="audio" preload="metadata"></audio>
+  <div class="muted" style="margin-top:12px" id="note"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+const session = new URLSearchParams(location.search).get('s') || '';
+const audio = $('audio'), seek = $('seek');
+let duration = 0, dragging = false, meta = null;
+const clock = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const controls = ['seek', 'b60', 'b10', 'play', 'f10', 'f60'];
+const enable = on => controls.forEach(i => $(i).disabled = !on);
+
+function show() {
+  if (!dragging) seek.value = audio.currentTime;
+  $('pos').textContent = clock(dragging ? seek.value : audio.currentTime);
+  $('play').textContent = audio.paused ? '▶' : '⏸';
+}
+function jump(delta) { audio.currentTime = Math.min(Math.max(0, audio.currentTime + delta), duration); }
+
+async function init() {
+  $('name').textContent = session || 'Aucune session';
+  try { meta = await api('/api/play/' + encodeURIComponent(session)); }
+  catch (e) { $('err').textContent = e.message; return; }
+  duration = meta.duration_s;
+  $('dur').textContent = clock(duration);
+  seek.max = duration;
+  $('meta').textContent = `${clock(duration)} · ${meta.rate} Hz · mix de la console : ${meta.mix_names.join(' + ')} (voies ${meta.mix.join('/')})`;
+  if (meta.mix_fallback) $('note').textContent = "Cette prise a moins de voies que prévu : les deux premières voies sont jouées.";
+  if (meta.blocked) return blocked();
+  audio.src = meta.url;
+  enable(true);
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({title: session, artist: 'Enregistreur XR18'});
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('seekbackward', () => jump(-10));
+    navigator.mediaSession.setActionHandler('seekforward', () => jump(10));
+  }
+}
+function blocked() {
+  audio.pause(); audio.removeAttribute('src'); audio.load();  // coupe la connexion : le Pi doit se consacrer à l'enregistrement
+  enable(false);
+  $('err').textContent = "Écoute indisponible pendant un enregistrement : elle ralentirait le Pi et risquerait de faire perdre de l'audio.";
+}
+
+$('play').onclick = () => audio.paused ? audio.play().catch(e => $('err').textContent = e.message) : audio.pause();
+$('b60').onclick = () => jump(-60); $('b10').onclick = () => jump(-10);
+$('f10').onclick = () => jump(10); $('f60').onclick = () => jump(60);
+seek.oninput = () => { dragging = true; show(); };
+seek.onchange = () => { audio.currentTime = Number(seek.value); dragging = false; };
+for (const ev of ['timeupdate', 'play', 'pause', 'seeked']) audio.addEventListener(ev, show);
+audio.addEventListener('waiting', () => $('note').textContent = 'Chargement…');
+audio.addEventListener('playing', () => { if (!meta.mix_fallback) $('note').textContent = ''; });
+audio.addEventListener('error', () => { if (audio.getAttribute('src')) $('err').textContent = "Lecture impossible : " + (audio.error ? audio.error.message || 'erreur du lecteur' : 'erreur'); });
+audio.addEventListener('ended', show);
+
+// si un enregistrement démarre pendant l'écoute, on s'arrête aussitôt
+setInterval(async () => {
+  try { const s = await api('/api/status'); if (s.state === 'recording' && audio.getAttribute('src')) blocked(); } catch (e) { /* hors ligne */ }
+}, 2000);
+init();
+</script>
+</body>
+</html>

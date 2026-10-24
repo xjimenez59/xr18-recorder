@@ -26,6 +26,7 @@ Enregistrer une répétition ou un concert : les 16 entrées indépendantes de l
 `GET /api/status`, `GET /api/sessions`, `POST /api/start {"name": "..."}`, `POST /api/stop`, `GET /files/<session>/<fichier>`, `GET /zip/<session>` (session complète en ZIP64 non compressé, écrit en flux avec `Content-Length` exact ; refusé pendant un enregistrement ; `ziputil.py`). Aucune authentification : réseau de scène privé uniquement.
 
 ## Choix du stockage
+Temps d'enregistrement restant : `Recorder._remaining_s` = (espace libre - min_free_gb/2) / débit de la configuration, dans `status()` et dans chaque option de stockage ; affiché à côté de l'espace libre (orange sous 30 min).
 `storage.py` liste la carte SD (`output_dir`, défaut `/var/lib/xr18rec/recordings`) et les disques USB déjà montés (`/dev/sd*`, `/dev/nvme*` d'après `/proc/mounts`, dossier `<montage>/xr18-recordings`). Sélection dans l'interface (`GET/POST /api/storage`), refusée pendant un enregistrement, mémorisée dans `state_file`. Pas de montage automatique (droits root) : monter via fstab avec `nofail`. Les sessions de tous les emplacements sont listées et téléchargeables. **À vérifier sur le Pi** : droits d'écriture sur le disque, détection des étiquettes (`/dev/disk/by-label`).
 
 ## Mix de retour (in-ear)

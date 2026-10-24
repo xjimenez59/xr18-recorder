@@ -106,6 +106,7 @@ class Recorder:
                 "elapsed_s": round(elapsed, 1),
                 "overruns": self._overruns,
                 "free_gb": round(self.free_gb(), 2),
+                "remaining_s": self._remaining_s(self.free_gb()),
                 "files": files,
                 "error": self._error,
                 "storage": self._storage_summary(),
@@ -322,6 +323,11 @@ class Recorder:
                 pass
         return out
 
+    def _remaining_s(self, free_gb: float) -> int:
+        """Durée d'enregistrement possible avec cet espace libre (la prise s'arrête sous la moitié du seuil minimal)."""
+        usable = max(0.0, free_gb - self.cfg.min_free_gb / 2) * 1024**3
+        return int(usable / self.cfg.bytes_per_second)
+
     def sessions(self) -> list[dict]:
         out = []
         for v in self.volumes():
@@ -378,7 +384,8 @@ class Recorder:
             if self._active_dir not in [v.path for v in vols]:
                 self._notice = f"Emplacement absent : {self._active_dir}"
             return {"active": self._active_dir, "recording": self.is_recording(), "notice": self._notice,
-                    "options": [dict(v.to_dict(), active=(v.path == self._active_dir)) for v in vols]}
+                    "options": [dict(v.to_dict(), active=(v.path == self._active_dir), remaining_s=self._remaining_s(v.free_gb))
+                                for v in vols]}
 
     def set_storage(self, path: str) -> dict:
         with self._lock:

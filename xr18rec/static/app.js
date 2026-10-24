@@ -1,6 +1,7 @@
 // Fonctions communes aux pages de l'enregistreur.
 const $ = id => document.getElementById(id);
 const fmt = s => [Math.floor(s/3600), Math.floor(s%3600/60), Math.floor(s%60)].map(n => String(n).padStart(2,'0')).join(':');
+const fmtDuration = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}` : `${Math.floor(s / 60)} min`;
 const mb = b => (b/1048576).toFixed(b > 1e9 ? 0 : 1) + ' Mio';
 
 async function api(path, body) {
@@ -18,6 +19,12 @@ function renderStatus(s) {
   set('session', s.session || '');
   set('elapsed', fmt(s.elapsed_s));
   set('free', s.free_gb);
+  const rem = $('remaining');
+  if (rem && s.remaining_s !== undefined) {
+    rem.textContent = ` (≈ ${fmtDuration(s.remaining_s)} d'enregistrement)`;
+    rem.style.color = s.remaining_s < 1800 ? '#f59e0b' : '';  // moins de 30 min : en orange
+    rem.style.fontWeight = s.remaining_s < 1800 ? '700' : '';
+  }
   set('overruns', s.overruns);
   const real = s.actual ? s.actual.rate : s.config.rate;
   const gap = s.actual && s.actual.rate !== s.config.rate ? ' ⚠ réglage ' + s.config.rate + ' Hz' : '';

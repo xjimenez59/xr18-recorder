@@ -15,7 +15,7 @@
 <div class="card">
   <div class="row"><span id="state" class="state">…</span><span id="session" class="muted"></span></div>
   <div class="big" id="elapsed">00:00:00</div>
-  <div class="muted">Disque libre : <b id="free">?</b> Gio · Dépassements : <b id="overruns">0</b></div>
+  <div class="muted">Disque libre : <b id="free">?</b> Gio<span id="remaining"></span> · Dépassements : <b id="overruns">0</b></div>
   <div class="err" id="error"></div>
   <ul id="files"></ul>
 </div>
@@ -101,7 +101,7 @@ async function loadStorage() {
       for (const o of d.options) {
         const opt = document.createElement('option');
         opt.value = o.path; opt.selected = o.active;
-        opt.textContent = `${o.kind === 'sd' ? '💾' : '🔌'} ${o.label} · ${o.free_gb} Gio libres` + (o.writable ? '' : ' · NON INSCRIPTIBLE');
+        opt.textContent = `${o.kind === 'sd' ? '💾' : '🔌'} ${o.label} · ${o.free_gb} Gio libres (≈ ${fmtDuration(o.remaining_s)})` + (o.writable ? '' : ' · NON INSCRIPTIBLE');
         sel.append(opt);
       }
     }

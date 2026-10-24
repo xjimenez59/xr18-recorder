@@ -62,6 +62,20 @@ class StorageTests(unittest.TestCase):
                 # le choix est mémorisé
                 self.assertEqual(Recorder(make_cfg(tmp)).storage_info()["active"], usb_opt["path"])
 
+    def test_remaining_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = Recorder(make_cfg(tmp))  # min_free_gb = 0 dans les tests : tout l'espace libre est utilisable
+            bps = rec.cfg.bytes_per_second
+            self.assertEqual(rec._remaining_s(1.0), int(1024**3 / bps))  # 1 Gio à 3,5 Mo/s ≈ 5 min
+            self.assertEqual(rec._remaining_s(0.0), 0)
+            rec.cfg.min_free_gb = 2.0  # la prise s'arrête sous 1 Gio : 3 Gio libres = 2 Gio utilisables
+            self.assertEqual(rec._remaining_s(3.0), int(2 * 1024**3 / bps))
+            self.assertEqual(rec._remaining_s(0.5), 0)
+            status = rec.status()
+            self.assertIn("remaining_s", status)
+            self.assertGreater(status["remaining_s"], 0)
+            self.assertTrue(all("remaining_s" in o for o in rec.storage_info()["options"]))
+
     def test_usb_unplugged(self):
         with tempfile.TemporaryDirectory() as tmp:
             usb, mounts, labels = fake_system(tmp)

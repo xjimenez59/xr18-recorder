@@ -30,7 +30,7 @@ echo "== DIAG fin du relevé =="
 
 # ---- paquets -------------------------------------------------------------------------------
 apt-get update
-apt-get install -y --no-install-recommends python3 alsa-utils usbutils xfsprogs exfatprogs ntfs-3g avahi-daemon rsync
+apt-get install -y --no-install-recommends python3 cloud-guest-utils e2fsprogs alsa-utils usbutils xfsprogs exfatprogs ntfs-3g avahi-daemon rsync
 
 # ---- application ---------------------------------------------------------------------------
 install -d "$APP"
@@ -45,12 +45,13 @@ install -d /media/xr18
 install -m 644 "$HERE/image/files/xr18rec.json" /etc/xr18rec.json
 install -m 644 "$HERE/image/files/xr18rec.service" /etc/systemd/system/xr18rec.service
 install -m 644 "$HERE/image/files/xr18rec-mount@.service" /etc/systemd/system/xr18rec-mount@.service
+install -m 644 "$HERE/image/files/xr18rec-growfs.service" /etc/systemd/system/xr18rec-growfs.service
 install -m 644 "$HERE/image/files/99-xr18rec-usb.rules" /etc/udev/rules.d/99-xr18rec-usb.rules
 install -d /etc/polkit-1/rules.d
 install -m 644 "$HERE/image/files/50-xr18rec.rules" /etc/polkit-1/rules.d/50-xr18rec.rules
 install -d /etc/systemd/journald.conf.d
 install -m 644 "$HERE/image/files/journald-xr18rec.conf" /etc/systemd/journald.conf.d/xr18rec.conf
-systemctl enable xr18rec.service avahi-daemon.service
+systemctl enable xr18rec.service xr18rec-growfs.service avahi-daemon.service
 
 # ---- partition de démarrage (visible depuis Windows) ---------------------------------------
 # Dans ce chroot, la partition de démarrage est montée sur /boot (c'est /boot/firmware au runtime).
@@ -65,7 +66,8 @@ if grep -q '^127\.0\.1\.1' /etc/hosts; then sed -i 's/^127\.0\.1\.1.*/127.0.1.1\
 else printf '127.0.1.1\txr18rec\n' >> /etc/hosts; fi
 echo Europe/Paris > /etc/timezone
 ln -sf /usr/share/zoneinfo/Europe/Paris /etc/localtime
-sed -i '0,/defaults/s/defaults/defaults,noatime/' /etc/fstab   # moins d'écritures sur la carte SD
+# moins d'écritures sur la carte SD : noatime sur la racine ext4 (déjà présent dans les versions récentes de la base)
+sed -i -E '/^[^#].*[[:space:]]\/[[:space:]]+ext4[[:space:]]/{/noatime/!s/defaults/defaults,noatime/}' /etc/fstab
 
 # cloud-init (présent dans Raspberry Pi OS Trixie) ne doit pas renommer le Pi, et doit laisser SSH accepter
 # le mot de passe quand l'utilisateur active SSH (fichier « ssh » sur la partition de démarrage).
@@ -100,7 +102,8 @@ done
 
 # ---- vérifications -------------------------------------------------------------------------
 (cd "$APP" && python3 -m xr18rec config --config /etc/xr18rec.json >/dev/null)
-systemctl is-enabled xr18rec.service
+systemctl is-enabled xr18rec.service xr18rec-growfs.service
+grep -E "[[:space:]]/[[:space:]]+ext4" /etc/fstab
 test -f /boot/xr18rec.json && test -f /boot/LISEZMOI-XR18.txt
 echo "== Version : $(cat "$APP/VERSION")"
 

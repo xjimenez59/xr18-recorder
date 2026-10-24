@@ -78,6 +78,11 @@ def cmd_bootconfig(args) -> int:
     return 0  # même invalide : le service doit démarrer avec la configuration précédente
 
 
+def cmd_growfs(args) -> int:
+    from . import growfs
+    return growfs.run()
+
+
 def cmd_automount(args) -> int:
     from . import automount
     return automount.mount(args.device) if args.action == "mount" else automount.umount(args.device)
@@ -145,6 +150,8 @@ def main(argv=None) -> int:
     s.add_argument("--boot", help="partition de démarrage (défaut : /boot/firmware ou /boot)")
     s.add_argument("--dest", default="/etc/xr18rec.json")
     s.set_defaults(fn=cmd_bootconfig)
+    s = sub.add_parser("growfs", help="(root) complète l'agrandissement de la carte SD si le 1er démarrage a été interrompu")
+    s.set_defaults(fn=cmd_growfs)
     s = sub.add_parser("automount", help="(root) monte ou démonte un disque USB ; appelé par systemd")
     s.add_argument("action", choices=["mount", "umount"])
     s.add_argument("device")

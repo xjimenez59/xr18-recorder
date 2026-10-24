@@ -1,0 +1,13 @@
+[Unit]
+Description=Complète l'agrandissement du système de fichiers de la carte SD si le premier démarrage a été interrompu
+After=local-fs.target rpi-resize.service systemd-growfs-root.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/xr18rec
+ExecStart=/usr/bin/python3 -m xr18rec growfs
+# Sur une grande carte, l'opération peut durer plusieurs minutes
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

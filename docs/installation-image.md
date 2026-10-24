@@ -28,7 +28,9 @@ Les autres réglages sont décrits dans `LISEZMOI-XR18.txt` sur la même partiti
 ## 4. Brancher et démarrer
 
 Carte SD dans le Pi, **câble Ethernet vers le routeur de scène**, XR18 en USB, disque USB (ext4 ou XFS conseillé), alimentation.
-Le premier démarrage est plus long (agrandissement de la partition, redémarrage automatique). Ensuite :
+Le premier démarrage est plus long : la partition puis le système de fichiers sont agrandis à la taille de la carte, ce qui peut
+prendre **plusieurs minutes** sur une grande carte (patientez 10 minutes avant de débrancher). Si le Pi est débranché pendant
+l'opération, un service de sécurité (`xr18rec-growfs`) la termine au démarrage suivant. Ensuite :
 
 - `http://xr18rec.local/` (ou l'adresse IP du Pi lue dans le routeur) ;
 - page d'accueil : état, REC/STOP, QR code des retours musiciens, mute ;
@@ -48,6 +50,7 @@ Pour passer à une version plus récente, changer `BASE_DIR` et `BASE_FILE` dans
 | Disques USB | montés automatiquement dans `/media/xr18/<étiquette>` (udev + service `xr18rec-mount@`), dossier `xr18-recordings` confié au service |
 | Réseau | DHCP, nom `xr18rec` (mDNS avec avahi → `xr18rec.local`) |
 | Réglages de l'interface | `/var/lib/xr18rec/settings.json` ; règle polkit autorisant le service à régler l'heure, redémarrer et éteindre le Pi |
+| Taille de la carte | agrandie au premier démarrage ; `xr18rec-growfs` (à chaque démarrage) complète l'opération si elle a été interrompue |
 | SSH | **désactivé** ; créer un fichier vide `ssh` sur `bootfs` pour l'activer. Utilisateur `xr18`, mot de passe initial `xr18rec`, **changement imposé à la première connexion** |
 | Carte SD | `noatime`, journaux bornés à 64 Mo, carte son interne désactivée, `max_usb_current=1` |
 

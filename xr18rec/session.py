@@ -14,7 +14,8 @@ import time
 from collections import deque
 from datetime import datetime
 
-from . import audio, storage, wavtools, xr18osc
+from . import audio, storage, system, wavtools, xr18osc
+from . import health as health_mod
 from .config import FORMAT_BYTES, Config
 from .meters import LevelMonitor, msb_offset
 from .reaper import LAYOUT_FILE, channel_names, load_layout, write_project
@@ -63,6 +64,12 @@ class Recorder:
         self._layout_thread: threading.Thread | None = None
         self._levels: LevelMonitor | None = None
         self._monitor: _Monitor | None = None
+        self._health = health_mod.Health()
+        self._take_health: dict = {}  # maxima et événements de la prise (température, sous-tension…)
+        self._overrun_at: list[float] = []  # instants (s depuis le début) des dépassements
+        self._health_thread: threading.Thread | None = None
+        self._started_iso = ""
+        self._free_start = 0.0
         self._levels_thread: threading.Thread | None = None
         self._notice: str | None = None
         self._active_dir = self._restore_choice()
@@ -112,6 +119,8 @@ class Recorder:
                 "storage": self._storage_summary(),
                 "actual": self._actual_format(),
                 "levels": self._levels_summary(),
+                "alerts": self._alerts(),
+                "version": system.version(),
                 "stderr_tail": list(self._stderr_tail),
                 "config": {
                     "device": self.cfg.device, "channels": self.cfg.channels,
@@ -119,6 +128,102 @@ class Recorder:
                     "segment_seconds": self.cfg.segment_seconds,
                 },
             }
+
+    # ---- santé du Pi, bilan de prise, alertes -----------------------------------
+    def _health_loop(self, proc: subprocess.Popen, directory: str) -> None:
+        """Pendant la prise : relève l'état du Pi toutes les 2 s et tient à jour recording.json."""
+        take = self._take_health
+        start_pw = (self._health.snapshot(max_age=0).get("power") or {})
+        last_write = time.monotonic()
+        while True:
+            try:
+                snap = self._health.snapshot(max_age=0)
+                take["samples"] = take.get("samples", 0) + 1
+                for key, val in (("max_temp_c", snap["temp_c"]), ("max_cpu_pct", snap["cpu_pct"]), ("max_load1", snap["load1"])):
+                    if val is not None:
+                        take[key] = max(take.get(key, 0), val)
+                pw = snap.get("power") or {}
+                if pw.get("undervoltage_now") or (pw.get("undervoltage_seen") and not start_pw.get("undervoltage_seen")):
+                    take["undervoltage"] = True  # y compris une chute plus brève que l'intervalle de mesure
+                if pw.get("throttled_now") or pw.get("freq_capped_now") or (
+                        pw.get("throttled_seen") and not start_pw.get("throttled_seen")):
+                    take["throttled"] = True
+            except Exception:  # la surveillance ne doit jamais gêner l'enregistrement
+                pass
+            try:
+                proc.wait(timeout=2)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if time.monotonic() - last_write >= 30:
+                self._write_recording_info(directory)
+                last_write = time.monotonic()
+        self._write_recording_info(directory)
+
+    def _write_recording_info(self, directory: str) -> None:
+        """Bilan de la prise : durée, dépassements, état du Pi, derniers messages d'arecord."""
+        c = self.cfg
+        info = {
+            "version": 1, "app_version": system.version(), "started": self._started_iso,
+            "duration_s": round(time.monotonic() - self._started, 1),
+            # sans le verrou de l'enregistreur : stop() le tient pendant qu'il attend ce fil (blocage sinon)
+            "state": "error" if self._error else ("recording" if self._proc is not None and self._proc.poll() is None else "ok"),
+            "error": self._error, "device": c.device, "format": c.format, "rate": c.rate, "channels": c.channels,
+            "segment_seconds": c.segment_seconds, "storage": self._storage_summary()["label"],
+            "free_gb_start": self._free_start, "free_gb_end": round(self.free_gb(), 2),
+            "overruns": {"count": self._overruns, "at_s": list(self._overrun_at)},
+            "health": dict(self._take_health), "stderr_tail": list(self._stderr_tail)[-10:],
+        }
+        tmp = os.path.join(directory, "recording.json.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(info, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, os.path.join(directory, "recording.json"))
+        except OSError:
+            pass
+
+    def _alerts(self) -> list[dict]:
+        """Problèmes à montrer sur l'accueil : ceux de la prise (conservés jusqu'à la suivante) et l'état actuel du Pi."""
+        out: list[dict] = []
+        n = self._overruns
+        if n:
+            first = f" (le premier à {health_mod.fmt_time(self._overrun_at[0])})" if self._overrun_at else ""
+            out.append({"level": "error", "code": "overruns", "message": (
+                f"{n} dépassement{'s' if n > 1 else ''} : de l'audio a été perdu{first}. "
+                "Enregistrez sur un disque USB plutôt que sur la carte SD, et vérifiez l'alimentation du Pi.")})
+        take = self._take_health
+        if take.get("undervoltage"):
+            out.append({"level": "error", "code": "take_undervoltage", "message":
+                        "Sous-tension pendant la prise : alimentation du Pi insuffisante (bloc secteur, câble, disque USB)."})
+        if take.get("throttled"):
+            out.append({"level": "warn", "code": "take_throttled", "message":
+                        "Le processeur du Pi a été ralenti pendant la prise (alimentation ou chaleur)."})
+        if take.get("max_temp_c", 0) >= health_mod.TEMP_ERROR:
+            out.append({"level": "error", "code": "take_temp", "message":
+                        f"Pi très chaud pendant la prise ({take['max_temp_c']:.0f} °C)."})
+        mon = self._levels
+        if mon is not None and mon.skipped_seconds() > 0:
+            out.append({"level": "warn", "code": "levels_partial", "message":
+                        "Analyse des niveaux partielle : le Pi était trop chargé (l'enregistrement n'est pas touché)."})
+        if self._error:
+            out.append({"level": "error", "code": "recorder", "message": f"Enregistrement interrompu : {self._error}"})
+        skip = {"undervoltage", "undervoltage_seen"} if take.get("undervoltage") else set()
+        seen = {a["code"] for a in out}
+        out += [a for a in health_mod.assess(self._health.snapshot()) if a["code"] not in skip | seen]
+        if self.is_recording():
+            remaining = self._remaining_s(self.free_gb())
+            if remaining < 600:
+                out.append({"level": "error", "code": "space", "message":
+                            f"Espace disque presque épuisé : environ {max(0, remaining // 60)} min d'enregistrement possible."})
+            elif remaining < 1800:
+                out.append({"level": "warn", "code": "space", "message":
+                            f"Espace disque limité : environ {remaining // 60} min d'enregistrement possible."})
+        return out
+
+    def health_info(self) -> dict:
+        snap = self._health.snapshot()
+        return {"live": snap, "alerts": health_mod.assess(snap), "take": dict(self._take_health),
+                "recording": self.is_recording()}
 
     def _level_names(self, count: int) -> list[str]:
         return channel_names(load_layout(self._session_dir) if self._session_dir else None, count)
@@ -441,6 +546,10 @@ class Recorder:
             self._started = time.monotonic()
             self._stopped = 0.0
             self._overruns = 0
+            self._overrun_at = []
+            self._take_health = {}
+            self._started_iso = datetime.now().isoformat(timespec="seconds")
+            self._free_start = round(self.free_gb(), 2)
             self._error = None
             self._stopping = False
             self._stderr_tail.clear()
@@ -455,6 +564,9 @@ class Recorder:
             self._levels_thread = threading.Thread(target=self._levels.run, args=(lambda: proc.poll() is None,),
                                                    daemon=True, name="levels")
             self._levels_thread.start()
+            self._health_thread = threading.Thread(target=self._health_loop, args=(proc, directory), daemon=True,
+                                                   name="health")
+            self._health_thread.start()
             self._layout_thread = None
             if self.cfg.xr18_host:  # après le lancement d'arecord : ne retarde pas l'enregistrement
                 self._layout_thread = threading.Thread(target=self._snapshot_layout, args=(directory,),
@@ -491,6 +603,8 @@ class Recorder:
             self._stderr_tail.append(line)
             if "overrun" in line.lower():
                 self._overruns += 1
+                if len(self._overrun_at) < 50:
+                    self._overrun_at.append(round(time.monotonic() - self._started, 1))
 
     def _watch_disk(self, proc: subprocess.Popen) -> None:
         while proc.poll() is None:
@@ -515,6 +629,8 @@ class Recorder:
         self._stopped = time.monotonic()
         if self._levels_thread is not None:
             self._levels_thread.join(timeout=15)  # bilan des niveaux (levels.json) avant le projet Reaper
+        if self._health_thread is not None:
+            self._health_thread.join(timeout=15)  # bilan de la prise (recording.json)
         self._write_project()
 
     def stop(self) -> dict:

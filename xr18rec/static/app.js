@@ -30,7 +30,17 @@ function renderStatus(s) {
   const gap = s.actual && s.actual.rate !== s.config.rate ? ' ⚠ réglage ' + s.config.rate + ' Hz' : '';
   set('cfg', `${s.config.device} · ${s.config.channels} voies · ${real} Hz${gap} · ${s.config.format}`);
   set('error', s.error || '');
-  document.title = (s.state === 'recording' ? '● ' : '') + 'Enregistreur XR18';
+  const ver = $('appver');
+  if (ver && s.version) ver.textContent = 'Version ' + s.version;
+  const box = $('alerts');
+  if (box) {  // problèmes détectés (dépassements, sous-tension, chaleur, espace…) : visibles tant qu'ils durent
+    const alerts = s.alerts || [];
+    box.hidden = !alerts.length;
+    box.replaceChildren(...alerts.map(a => {
+      const d = document.createElement('div'); d.className = 'alert ' + a.level; d.textContent = a.message; return d;
+    }));
+  }
+  document.title = (s.alerts && s.alerts.some(a => a.level === 'error') ? '⚠ ' : '') + (s.state === 'recording' ? '● ' : '') + 'Enregistreur XR18';
 }
 
 async function pollStatus(onData) {

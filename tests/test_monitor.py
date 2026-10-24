@@ -117,7 +117,7 @@ class MonitorTests(unittest.TestCase):
             time.sleep(0.2)
             self.assertTrue(os.path.exists(self.lock))
             self.assertTrue(wait_for(lambda: not os.path.exists(self.lock), 6))  # arrêt automatique, carte rendue
-            self.assertEqual(self.rec.levels()["mode"], "none")
+            self.assertTrue(wait_for(lambda: self.rec.levels()["mode"] == "none", 3))  # le fil de lecture finit de se refermer
         finally:
             session.MONITOR_IDLE_S = old
 

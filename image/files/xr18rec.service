@@ -6,7 +6,7 @@ After=network.target local-fs.target sound.target
 Type=simple
 User=xr18rec
 Group=xr18rec
-SupplementaryGroups=audio
+SupplementaryGroups=audio video
 WorkingDirectory=/opt/xr18rec/current
 # En root (« + ») : copie les réglages déposés sur la partition de démarrage vers /etc après validation
 ExecStartPre=+/usr/bin/python3 -m xr18rec bootconfig

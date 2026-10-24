@@ -185,6 +185,9 @@ class LevelMonitor:
     def _window(self) -> list[int]:
         return [max((peaks[c] for _end, peaks in self._recent), default=0) for c in range(self.channels)]
 
+    def skipped_seconds(self) -> float:
+        return self.skipped / self.rate
+
     def reset_display(self) -> None:
         """Remet à zéro les crêtes affichées (le bilan de la prise, lui, ne change pas)."""
         with self._lock:

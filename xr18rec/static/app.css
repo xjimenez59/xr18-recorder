@@ -57,4 +57,12 @@ a.btn.disabled { opacity:.35; pointer-events:none; }
 .meter small { font-size:.58rem; color:var(--muted); flex:none; line-height:1; }
 .meter.clipped small { color:var(--rec); font-weight:700; }
 .lvlwarn { color:var(--rec); font-weight:600; margin-top:8px; }
+.alerts { display:grid; gap:8px; margin-bottom:12px; }
+.alert { padding:10px 14px; border-radius:10px; font-weight:600; line-height:1.3; }
+.alert.error { background:var(--rec); color:#fff; }
+.alert.warn { background:#b45309; color:#fff; }
+.alert::before { content:"⚠ "; }
+.health { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin-top:8px; font-variant-numeric:tabular-nums; }
+.health dt { color:var(--muted); } .health dd { margin:0; font-weight:600; }
+.ok-text { color:var(--ok); } .warn-text { color:#f59e0b; } .err-text { color:var(--rec); }
 [hidden] { display:none !important; }  /* l'attribut hidden doit l'emporter sur display:flex / inline-block */

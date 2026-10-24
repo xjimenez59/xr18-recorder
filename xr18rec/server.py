@@ -136,6 +136,8 @@ def make_handler(rec: Recorder, app: App):
                 return self._json(audio.probe(rec.cfg, rec.is_recording()))
             if path == "/api/system":
                 return self._json(system.info())
+            if path == "/api/health":
+                return self._json(rec.health_info())
             if path == "/api/status":
                 return self._json(rec.status())
             if path == "/api/levels":

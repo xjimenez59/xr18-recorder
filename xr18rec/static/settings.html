@@ -24,7 +24,7 @@
 </head>
 <body>
 <div class="top">
-  <h1>Paramètres</h1>
+  <h1>Paramètres <small class="muted" id="topver" style="font-weight:500"></small></h1>
   <a class="btn ghost" href="/">‹ Accueil</a>
 </div>
 
@@ -77,6 +77,13 @@
   </div>
   <div class="msg" id="msg"></div>
   <div class="muted" id="modified"></div>
+</div>
+
+<div class="card" id="healthcard">
+  <b>Santé du Pi</b>
+  <div id="healthalerts" class="alerts" style="margin-top:8px" hidden></div>
+  <dl class="health" id="healthgrid"></dl>
+  <div class="muted" style="margin-top:8px">Mesures du Pi lui-même. Une <b>sous-tension</b> (alimentation insuffisante) est une cause fréquente de coupures, surtout avec un disque branché sur le Pi ; les <b>dépassements</b> signalés à l'accueil indiquent de l'audio perdu.</div>
 </div>
 
 <div class="card" id="updcard">
@@ -260,6 +267,7 @@ async function refreshUpdate() {
   try {
     const u = await api('/api/update');
     $('updver').textContent = `Version installée : ${u.current}`;
+    $('topver').textContent = 'v' + u.current;
     $('updnokey').hidden = u.can_verify;
     const st = $('updstaged');
     st.hidden = !u.staged;
@@ -331,6 +339,35 @@ $('updinstall').onclick = async () => {
   try { await api('/api/update/install', {}); say('updmsg', 'Installation demandée…', 'ok'); watchInstall(); }
   catch (e) { say('updmsg', e.message, 'warn'); }
 };
+async function refreshHealth() {
+  try {
+    const h = await api('/api/health'), l = h.live, pw = l.power;
+    const box = $('healthalerts');
+    box.hidden = !h.alerts.length;
+    box.replaceChildren(...h.alerts.map(a => { const d = document.createElement('div'); d.className = 'alert ' + a.level; d.textContent = a.message; return d; }));
+    const rows = [];
+    const add = (k, v, cls) => rows.push([k, v, cls || '']);
+    add('Processeur', l.cpu_pct === null ? 'mesure en cours…' : `${l.cpu_pct} %`, l.cpu_pct >= 90 ? 'warn-text' : '');
+    add('Charge (1 / 5 / 15 min)', `${l.load1} / ${l.load5} / ${l.load15}  (${l.cpus} cœurs)`, l.load1 / l.cpus >= 0.9 ? 'warn-text' : '');
+    add('Température', l.temp_c === null ? 'indisponible' : `${l.temp_c} °C`, l.temp_c >= 80 ? 'err-text' : l.temp_c >= 75 ? 'warn-text' : 'ok-text');
+    add('Mémoire', l.mem_used_pct === null ? 'indisponible' : `${l.mem_used_pct} % utilisée sur ${l.mem_total_mb} Mo`, l.mem_used_pct >= 90 ? 'warn-text' : '');
+    if (pw) {
+      add('Alimentation', pw.undervoltage_now ? 'SOUS-TENSION en ce moment' : pw.undervoltage_seen ? 'sous-tension détectée depuis le démarrage' : 'normale',
+          pw.undervoltage_now ? 'err-text' : pw.undervoltage_seen ? 'warn-text' : 'ok-text');
+      add('Ralentissement', pw.throttled_now || pw.freq_capped_now ? 'oui, en ce moment' : pw.throttled_seen ? 'déjà arrivé depuis le démarrage' : 'non',
+          pw.throttled_now || pw.freq_capped_now ? 'warn-text' : pw.throttled_seen ? 'warn-text' : 'ok-text');
+    } else add('Alimentation', 'non mesurable sur ce matériel', 'muted');
+    if (h.take && h.take.samples) add('Dernière prise', `${h.take.max_temp_c ?? '?'} °C maxi · processeur ${h.take.max_cpu_pct ?? '?'} % maxi`
+        + (h.take.undervoltage ? ' · SOUS-TENSION' : ''), h.take.undervoltage ? 'err-text' : '');
+    $('healthgrid').replaceChildren(...rows.flatMap(([k, v, cls]) => {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v; if (cls) dd.className = cls;
+      return [dt, dd];
+    }));
+  } catch (e) { /* le Pi redémarre peut-être */ }
+}
+refreshHealth(); setInterval(refreshHealth, 2000);
+
 refreshUpdate();
 $('updscan').click();  // un fichier de mise à jour déjà présent sur un disque est proposé d'emblée
 

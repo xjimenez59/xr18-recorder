@@ -8,6 +8,7 @@
 </head>
 <body>
 <h1>Enregistreur XR18</h1>
+<div id="alerts" class="alerts" hidden></div>
 
 <div class="card">
   <div class="row"><span id="state" class="state">…</span><span id="session" class="muted"></span></div>
@@ -61,6 +62,7 @@
 
 <div style="text-align:center; margin:4px 0 20px">
   <a class="gear" href="/settings" aria-label="Paramètres" title="Paramètres">⚙</a>
+  <div class="muted" id="appver" style="font-size:.75rem"></div>
 </div>
 
 <script src="/static/app.js"></script>
@@ -155,10 +157,12 @@ function renderLevels(d) {
   const load = d.load_pct >= 50 ? ` Analyse des niveaux : ${Math.round(d.load_pct)} % d’un cœur du Pi.` : '';
   $('lvlok').textContent = (bad.length ? '' : none) + partial + load + (d.monitor_error ? ' ⚠ ' + d.monitor_error : '');
 }
+let levelsTimer = null;
 async function pollLevels() {
+  clearTimeout(levelsTimer);
   let wait = 3000;
   try { const d = await api('/api/levels'); renderLevels(d); wait = d.active ? 250 : 3000; } catch (e) { /* on réessaie */ }
-  setTimeout(pollLevels, wait);
+  levelsTimer = setTimeout(pollLevels, wait);
 }
 $('lvlreset').onclick = async () => { try { renderLevels(await api('/api/levels/reset', {})); } catch (e) { /* ignoré */ } };
 $('lvlmon').onclick = async () => {
@@ -168,8 +172,13 @@ $('lvlmon').onclick = async () => {
 pollLevels();
 
 const controls = initRecordControls();
-pollStatus(controls.render);
-setInterval(() => pollStatus(controls.render), 1000);
+let lastState = null;
+const onStatus = st => {
+  controls.render(st);
+  if (st.state !== lastState) { lastState = st.state; pollLevels(); }  // début ou fin de prise : la carte « Niveaux » suit aussitôt
+};
+pollStatus(onStatus);
+setInterval(() => pollStatus(onStatus), 1000);
 </script>
 </body>
 </html>

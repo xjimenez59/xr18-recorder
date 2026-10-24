@@ -67,12 +67,31 @@ jobs:
           sha256sum "$out.xz" > "$out.xz.sha256"
           ls -lh xr18rec-*
 
+      # Mise à jour sans reflashage : petit paquet signé (voir docs/mise-a-jour.md). La clé privée vient du secret
+      # UPDATE_SIGNING_KEY ; sans elle (ou sans numéro de version X.Y.Z), seule l'image est produite.
+      - name: Paquet de mise à jour signé
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          ver="${IMAGE_VERSION#v}"
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "::warning::secret UPDATE_SIGNING_KEY absent : pas de paquet de mise à jour"; exit 0; fi
+          if ! echo "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "::notice::version « $ver » non publiable : pas de paquet de mise à jour"; exit 0; fi
+          notes="$(git tag -l --format='%(contents:subject)' "v$ver")"
+          (umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/update-key.pem")
+          python3 scripts/make_update_package.py --version "$ver" --key "$RUNNER_TEMP/update-key.pem" --out dist --notes "$notes"
+          rm -f "$RUNNER_TEMP/update-key.pem"
+          # contrôle : le paquet doit être accepté par la clé publique de l'image
+          XR18REC_UPDATE_PUBKEY=image/files/update-key.pub python3 -m xr18rec update inspect "dist/xr18rec-update-$ver.tar"
+          ls -l dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: xr18rec-image
           path: |
             xr18rec-*.img.xz
             xr18rec-*.img.xz.sha256
+            dist/xr18rec-update-*.tar
+          if-no-files-found: error
           retention-days: 14
           compression-level: 0   # déjà compressé
 
@@ -89,8 +108,11 @@ jobs:
             3. Éditer `xr18rec.json` sur la partition `bootfs` (adresse de l'XR18), ou le faire ensuite dans la page ⚙ Paramètres.
             4. Brancher (Ethernet, XR18 en USB, disque USB) puis ouvrir http://xr18rec.local/
 
+            **Mise à jour sans reflashage** (depuis une image `v0.3.0` ou plus récente) : télécharger `xr18rec-update-*.tar`, le copier à la racine d'un disque USB branché ou l'envoyer depuis ⚙ Paramètres. Voir [docs/mise-a-jour.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/mise-a-jour.md).
+
             Détails : [docs/installation-image.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/installation-image.md).
             **Version non testée sur matériel** : voir la section « À vérifier » de ce document.
           files: |
             xr18rec-*.img.xz
             xr18rec-*.img.xz.sha256
+            dist/xr18rec-update-*.tar

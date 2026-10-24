@@ -7,7 +7,7 @@ Type=simple
 User=xr18rec
 Group=xr18rec
 SupplementaryGroups=audio
-WorkingDirectory=/opt/xr18rec
+WorkingDirectory=/opt/xr18rec/current
 # En root (« + ») : copie les réglages déposés sur la partition de démarrage vers /etc après validation
 ExecStartPre=+/usr/bin/python3 -m xr18rec bootconfig
 ExecStart=/usr/bin/python3 -m xr18rec serve --config /etc/xr18rec.json

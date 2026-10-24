@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlparse
 
 from . import audio, qr, system, xr18osc
 from .app import App
+from .updater import UpdateError
 from .ziputil import ZipStream
 from .mixer import MixError, MixerClient
 from .session import Recorder, RecorderError
@@ -129,6 +130,8 @@ def make_handler(rec: Recorder, app: App):
                 return self._file(os.path.join(STATIC_DIR, "settings.html"))
             if path == "/api/settings":
                 return self._json(app.settings())
+            if path == "/api/update":
+                return self._json(app.updates.status())
             if path == "/api/audio":
                 return self._json(audio.probe(rec.cfg, rec.is_recording()))
             if path == "/api/system":
@@ -167,6 +170,8 @@ def make_handler(rec: Recorder, app: App):
                 return self._json(fn())
             except RecorderError as exc:
                 return self._json({"error": str(exc)}, 409)
+            except UpdateError as exc:
+                return self._json({"error": str(exc)}, 400)
             except system.SystemActionError as exc:
                 return self._json({"error": str(exc)}, 502)
             except OscError as exc:
@@ -196,6 +201,19 @@ def make_handler(rec: Recorder, app: App):
                     return self._json({"error": str(exc)}, 409)
             if path == "/api/levels/reset":
                 return self._json(rec.reset_levels())
+            if path == "/api/update/scan":
+                return self._app_call(lambda: {"usb": app.updates.usb_candidates()})
+            if path == "/api/update/upload":  # corps brut = le fichier de mise à jour
+                length = int(self.headers.get("Content-Length") or 0)
+                return self._app_call(lambda: app.updates.stage_stream(self.rfile, length))
+            if path == "/api/update/stage":
+                return self._app_call(lambda: app.updates.stage_usb(str(self._body().get("path", ""))))
+            if path == "/api/update/check":
+                return self._app_call(app.updates.check_online)
+            if path == "/api/update/download":
+                return self._app_call(app.updates.stage_online)
+            if path == "/api/update/install":
+                return self._app_call(lambda: app.updates.install(bool(self._body().get("allow_downgrade"))))
             if path == "/api/settings/reset":
                 return self._app_call(app.reset)
             if path == "/api/xr18/discover":

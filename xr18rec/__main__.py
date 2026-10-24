@@ -96,6 +96,22 @@ def cmd_meterbench(args) -> int:
     return 0
 
 
+def cmd_update(args) -> int:
+    from . import updater
+
+    if args.action == "run":  # service root : traite la demande déposée par l'application
+        return updater.run_pending()
+    if args.action == "inspect":  # vérifie un fichier de mise à jour sans rien installer
+        try:
+            man = updater.inspect(args.file)
+        except updater.UpdateError as exc:
+            print(f"refusé : {exc}")
+            return 1
+        print(f"valide : version {man['version']} (installée : {updater.current_version()})")
+        return 0
+    return 2
+
+
 def cmd_growfs(args) -> int:
     from . import growfs
     return growfs.run()
@@ -174,6 +190,10 @@ def main(argv=None) -> int:
     s.add_argument("--width", type=int, default=4, help="octets par échantillon (4 = S32_LE)")
     s.add_argument("--seconds", type=int, default=5)
     s.set_defaults(fn=cmd_meterbench)
+    s = sub.add_parser("update", help="(root) mises à jour signées : run (service) ou inspect FICHIER")
+    s.add_argument("action", choices=["run", "inspect"])
+    s.add_argument("file", nargs="?")
+    s.set_defaults(fn=cmd_update)
     s = sub.add_parser("growfs", help="(root) complète l'agrandissement de la carte SD si le 1er démarrage a été interrompu")
     s.set_defaults(fn=cmd_growfs)
     s = sub.add_parser("automount", help="(root) monte ou démonte un disque USB ; appelé par systemd")

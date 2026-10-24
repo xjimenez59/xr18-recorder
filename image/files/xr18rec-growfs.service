@@ -4,7 +4,7 @@ After=local-fs.target rpi-resize.service systemd-growfs-root.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/xr18rec
+WorkingDirectory=/opt/xr18rec/current
 ExecStart=/usr/bin/python3 -m xr18rec growfs
 # Sur une grande carte, l'opération peut durer plusieurs minutes
 TimeoutStartSec=infinity

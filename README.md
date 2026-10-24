@@ -23,7 +23,7 @@ scripts/deploy.sh pi@192.168.8.11
 ssh pi@192.168.8.11 'sudo ~/xr18-recorder/scripts/install-pi.sh'
 ~/xr18-recorder/scripts/probe-xr18.sh              # XR18 en USB : carte, formats, débits
 ```
-**Installation par image (recommandée)** : voir [docs/installation-image.md](docs/installation-image.md).
+**Installation par image (recommandée)** : voir [docs/installation-image.md](docs/installation-image.md). **Mise à jour sans reflashage** : [docs/mise-a-jour.md](docs/mise-a-jour.md).
 
 Installation manuelle : adapter `config/xr18rec.json` (`device`, `format`, `output_dir`), la copier en `/etc/xr18rec.json`, puis `sudo systemctl enable --now xr18rec`. Interface : `http://<ip>:8080`.
 

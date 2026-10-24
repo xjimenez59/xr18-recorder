@@ -6,6 +6,6 @@ After=dev-%i.device
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/xr18rec
+WorkingDirectory=/opt/xr18rec/current
 ExecStart=/usr/bin/python3 -m xr18rec automount mount /dev/%I
 ExecStop=/usr/bin/python3 -m xr18rec automount umount /dev/%I

@@ -8,6 +8,7 @@ from typing import Callable
 from . import config as config_mod
 from .mixer import MixerClient
 from .session import Recorder, RecorderError
+from .updates import UpdateService
 
 _TYPES = {"xr18_host": str, "device": str, "rate": int, "format": str, "channels": int,
           "segment_seconds": int, "min_free_gb": float, "mix_max_db": float, "mix_buses": list}
@@ -17,6 +18,7 @@ class App:
     def __init__(self, cfg: config_mod.Config, rec: Recorder, mixer: MixerClient | None = None,
                  base_path: str | None = None, restart: Callable[[], None] | None = None):
         self.cfg, self.rec, self.mixer = cfg, rec, mixer
+        self.updates = UpdateService(cfg, rec)
         self.base_path = base_path  # fichier de configuration de base (pour « revenir aux réglages d'origine »)
         self.restart = restart
 

@@ -45,7 +45,7 @@ Pour passer à une version plus récente, changer `BASE_DIR` et `BASE_FILE` dans
 
 | Élément | Détail |
 |---|---|
-| Application | `/opt/xr18rec`, service `xr18rec` (utilisateur dédié `xr18rec`, port 80) |
+| Application | `/opt/xr18rec/releases/<version>/` (lien `/opt/xr18rec/current`), service `xr18rec` (utilisateur dédié `xr18rec`, port 80) |
 | Réglages | `/boot/firmware/xr18rec.json` validé puis copié dans `/etc/xr18rec.json` à chaque démarrage ; erreur → `xr18rec-erreur.txt` sur la même partition |
 | Disques USB | montés automatiquement dans `/media/xr18/<étiquette>` (udev + service `xr18rec-mount@`), dossier `xr18-recordings` confié au service |
 | Réseau | DHCP, nom `xr18rec` (mDNS avec avahi → `xr18rec.local`) |
@@ -66,7 +66,8 @@ L'image n'a pas encore été démarrée sur un Pi 2 B réel. À contrôler : dé
 résolution `xr18rec.local`, montage d'un disque ext4/XFS/exFAT, droits d'écriture, test d'une heure
 (`scripts/soak-test.sh`), arrêt brutal (coupure de courant).
 
-## Mises à jour (à venir)
+## Mises à jour
 
-Pour l'instant : reflasher l'image. Les réglages sont sur `bootfs` (à noter avant de reflasher). Piste : mise à jour
-depuis GitHub quand le Pi a accès à Internet, sans reflasher.
+À partir de l'image `v0.3.0`, l'application se met à jour **sans reflasher** : voir [mise-a-jour.md](mise-a-jour.md)
+(disque USB, envoi depuis la page ⚙ Paramètres, ou Internet ; paquet signé, retour automatique en cas d'échec).
+Seules les évolutions du système (noyau, paquets Debian) exigent de reflasher l'image.

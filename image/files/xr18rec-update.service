@@ -1,0 +1,9 @@
+[Unit]
+Description=Installe une mise à jour signée de l'enregistreur XR18
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/xr18rec/current
+# En root : vérifie la signature du paquet déposé par l'application, bascule la version, revient en arrière en cas d'échec
+ExecStart=/usr/bin/python3 -m xr18rec update run
+TimeoutStartSec=600

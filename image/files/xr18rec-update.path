@@ -1,0 +1,10 @@
+[Unit]
+Description=Surveille les demandes de mise à jour de l'enregistreur XR18
+
+[Path]
+# L'application écrit ce fichier quand l'utilisateur confirme l'installation d'un paquet vérifié
+PathChanged=/var/lib/xr18rec/update/ready
+Unit=xr18rec-update.service
+
+[Install]
+WantedBy=multi-user.target

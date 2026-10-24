@@ -30,28 +30,39 @@ echo "== DIAG fin du relevé =="
 
 # ---- paquets -------------------------------------------------------------------------------
 apt-get update
-apt-get install -y --no-install-recommends python3 cloud-guest-utils e2fsprogs alsa-utils usbutils xfsprogs exfatprogs ntfs-3g avahi-daemon rsync
+apt-get install -y --no-install-recommends python3 openssl cloud-guest-utils e2fsprogs alsa-utils usbutils xfsprogs exfatprogs ntfs-3g avahi-daemon rsync
 
 # ---- application ---------------------------------------------------------------------------
-install -d "$APP"
-cp -r "$HERE/xr18rec" "$APP/"
-echo "${IMAGE_VERSION:-dev}" > "$APP/VERSION"
-python3 -m compileall -q "$APP" || true   # le service, non root, ne peut pas écrire les .pyc lui-même
+# Organisation prévue pour les mises à jour sans reflashage : releases/<version>/ et un lien « current »
+VER="${IMAGE_VERSION:-dev}"
+VER="${VER#v}"
+REL="$APP/releases/$VER"
+install -d "$REL"
+cp -r "$HERE/xr18rec" "$REL/"
+echo "$VER" > "$REL/VERSION"
+python3 -m compileall -q "$REL" || true   # le service, non root, ne peut pas écrire les .pyc lui-même
+ln -sfn "$REL" "$APP/current"
 
 id xr18rec >/dev/null 2>&1 || useradd --system --home-dir /var/lib/xr18rec --shell /usr/sbin/nologin --groups audio xr18rec
 install -d -o xr18rec -g xr18rec /var/lib/xr18rec /var/lib/xr18rec/recordings
+install -d -o xr18rec -g xr18rec /var/lib/xr18rec/update   # échange avec l'application : paquet déposé (non fiable)
+install -d -m 755 /var/lib/xr18rec/update-state            # compte rendu de l'installateur : root seul peut écrire
+install -d /etc/xr18rec
+install -m 644 "$HERE/image/files/update-key.pub" /etc/xr18rec/update-key.pub   # clé qui authentifie les mises à jour
 install -d /media/xr18
 
 install -m 644 "$HERE/image/files/xr18rec.json" /etc/xr18rec.json
 install -m 644 "$HERE/image/files/xr18rec.service" /etc/systemd/system/xr18rec.service
 install -m 644 "$HERE/image/files/xr18rec-mount@.service" /etc/systemd/system/xr18rec-mount@.service
 install -m 644 "$HERE/image/files/xr18rec-growfs.service" /etc/systemd/system/xr18rec-growfs.service
+install -m 644 "$HERE/image/files/xr18rec-update.service" /etc/systemd/system/xr18rec-update.service
+install -m 644 "$HERE/image/files/xr18rec-update.path" /etc/systemd/system/xr18rec-update.path
 install -m 644 "$HERE/image/files/99-xr18rec-usb.rules" /etc/udev/rules.d/99-xr18rec-usb.rules
 install -d /etc/polkit-1/rules.d
 install -m 644 "$HERE/image/files/50-xr18rec.rules" /etc/polkit-1/rules.d/50-xr18rec.rules
 install -d /etc/systemd/journald.conf.d
 install -m 644 "$HERE/image/files/journald-xr18rec.conf" /etc/systemd/journald.conf.d/xr18rec.conf
-systemctl enable xr18rec.service xr18rec-growfs.service avahi-daemon.service
+systemctl enable xr18rec.service xr18rec-growfs.service xr18rec-update.path avahi-daemon.service
 
 # ---- partition de démarrage (visible depuis Windows) ---------------------------------------
 # Dans ce chroot, la partition de démarrage est montée sur /boot (c'est /boot/firmware au runtime).
@@ -101,11 +112,13 @@ for s in triggerhappy.service bluetooth.service hciuart.service ModemManager.ser
 done
 
 # ---- vérifications -------------------------------------------------------------------------
-(cd "$APP" && python3 -m xr18rec config --config /etc/xr18rec.json >/dev/null)
-systemctl is-enabled xr18rec.service xr18rec-growfs.service
+(cd "$APP/current" && python3 -m xr18rec config --config /etc/xr18rec.json >/dev/null)
+systemctl is-enabled xr18rec.service xr18rec-growfs.service xr18rec-update.path
+openssl version
+test -L "$APP/current" && test -f /etc/xr18rec/update-key.pub
 grep -E "[[:space:]]/[[:space:]]+ext4" /etc/fstab
 test -f /boot/xr18rec.json && test -f /boot/LISEZMOI-XR18.txt
-echo "== Version : $(cat "$APP/VERSION")"
+echo "== Version : $(cat "$APP/current/VERSION")"
 
 # ---- nettoyage -----------------------------------------------------------------------------
 apt-get clean

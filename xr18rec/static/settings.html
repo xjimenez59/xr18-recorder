@@ -79,6 +79,26 @@
   <div class="muted" id="modified"></div>
 </div>
 
+<div class="card" id="updcard">
+  <b>Mise à jour de l'application</b>
+  <div class="muted" id="updver" style="margin-top:6px"></div>
+  <div class="msg warn" id="updnokey" hidden>Cette image ne contient pas la clé de vérification : les mises à jour sont impossibles, il faut reflasher la carte.</div>
+  <div id="updstaged" class="card" style="margin:10px 0 0; background:transparent; border:1px solid var(--accent)" hidden>
+    <b id="updstagedtitle"></b>
+    <div class="muted" id="updstagedmeta"></div>
+    <div class="actions"><button id="updinstall">Installer maintenant</button></div>
+  </div>
+  <div class="actions">
+    <button class="ghost" id="updcheck">Rechercher sur Internet</button>
+    <button class="ghost" id="updscan">Chercher sur un disque USB</button>
+    <button class="ghost" id="updpick">Envoyer un fichier…</button>
+    <input type="file" id="updfile" accept=".tar" hidden>
+  </div>
+  <div id="updfound" class="found"></div>
+  <div class="msg muted" id="updmsg"></div>
+  <div class="muted" style="font-size:.8rem">Le fichier <b>xr18rec-update-X.Y.Z.tar</b> se télécharge sur la page des versions du projet ; il peut aussi être copié à la racine du disque USB. Chaque paquet est vérifié (signature) avant installation, et l'ancienne version est rétablie automatiquement si la nouvelle ne démarre pas.</div>
+</div>
+
 <div class="card">
   <b>Système</b>
   <div class="muted" id="sys" style="margin-top:6px"></div>
@@ -232,6 +252,87 @@ $('restartapp').onclick = async () => {
     setTimeout(wait, 2500);
   } catch (e) { say('powermsg', e.message, 'warn'); }
 };
+
+
+// ---- mise à jour de l'application ----------------------------------------------------------------
+let updWatch = null;
+async function refreshUpdate() {
+  try {
+    const u = await api('/api/update');
+    $('updver').textContent = `Version installée : ${u.current}`;
+    $('updnokey').hidden = u.can_verify;
+    const st = $('updstaged');
+    st.hidden = !u.staged;
+    if (u.staged) {
+      $('updstagedtitle').textContent = `Version ${u.staged.version} prête à installer`;
+      $('updstagedmeta').textContent = `Source : ${u.staged.source}` + (u.staged.notes ? ' · ' + u.staged.notes : '');
+    }
+    const last = u.last;
+    if (last.state === 'requested' || last.state === 'running') say('updmsg', (last.message || 'installation en cours') + '… l\u2019application va redémarrer.', 'ok');
+    else if (last.state === 'ok' && last.version === u.current) say('updmsg', `✓ ${last.message}`, 'ok');
+    else if (last.state === 'failed' || last.state === 'rolled_back') say('updmsg', `⚠ ${last.message}`, 'warn');
+    return u;
+  } catch (e) { return null; }  // application en cours de redémarrage
+}
+async function watchInstall() {
+  clearInterval(updWatch);
+  updWatch = setInterval(async () => {
+    const u = await refreshUpdate();
+    if (u && ['ok', 'failed', 'rolled_back'].includes(u.last.state) && u.last.time > Date.now() / 1000 - 600) {
+      clearInterval(updWatch);
+      if (u.last.state === 'ok') setTimeout(() => location.reload(), 2500);
+    }
+  }, 1500);
+}
+function stagedFrom(promise, label) {
+  say('updmsg', label + '…');
+  return promise.then(() => { say('updmsg', 'Paquet vérifié : prêt à installer.', 'ok'); $('updfound').replaceChildren(); return refreshUpdate(); })
+    .catch(e => say('updmsg', e.message, 'warn'));
+}
+$('updcheck').onclick = async () => {
+  say('updmsg', 'Recherche sur Internet…'); $('updfound').replaceChildren();
+  try {
+    const r = await api('/api/update/check', {});
+    if (!r.has_package) return say('updmsg', `Dernière version publiée : ${r.latest || r.tag} (sans paquet de mise à jour : reflashage nécessaire).`, 'warn');
+    if (!r.newer) return say('updmsg', `Vous avez la dernière version (${r.current}).`, 'ok');
+    say('updmsg', `Version ${r.latest} disponible (vous avez ${r.current}).`, 'ok');
+    const b = document.createElement('button'); b.className = 'ghost'; b.textContent = `Télécharger la version ${r.latest}`;
+    b.onclick = () => stagedFrom(api('/api/update/download', {}), 'Téléchargement');
+    $('updfound').append(b);
+  } catch (e) { say('updmsg', e.message, 'warn'); }
+};
+$('updscan').onclick = async () => {
+  say('updmsg', 'Recherche sur les disques USB…'); $('updfound').replaceChildren();
+  try {
+    const {usb} = await api('/api/update/scan', {});
+    if (!usb.length) return say('updmsg', 'Aucun fichier xr18rec-update-X.Y.Z.tar à la racine des disques USB branchés.', 'warn');
+    say('updmsg', `${usb.length} fichier(s) trouvé(s) :`, 'ok');
+    for (const f of usb) {
+      const b = document.createElement('button'); b.className = 'ghost';
+      b.textContent = f.error ? `✗ ${f.name} (${f.disk}) : ${f.error}` : `${f.name} sur ${f.disk} — préparer`;
+      b.disabled = !!f.error;
+      b.onclick = () => stagedFrom(api('/api/update/stage', {path: f.path}), 'Lecture du fichier');
+      $('updfound').append(b);
+    }
+  } catch (e) { say('updmsg', e.message, 'warn'); }
+};
+$('updpick').onclick = () => $('updfile').click();
+$('updfile').onchange = () => {
+  const f = $('updfile').files[0]; $('updfile').value = '';
+  if (!f) return;
+  const send = fetch('/api/update/upload', {method: 'POST', body: f}).then(async r => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.statusText);
+  });
+  stagedFrom(send, `Envoi de ${f.name}`);
+};
+$('updinstall').onclick = async () => {
+  if (!confirm("Installer la mise à jour ? L'application redémarre (quelques secondes). Impossible pendant un enregistrement.")) return;
+  try { await api('/api/update/install', {}); say('updmsg', 'Installation demandée…', 'ok'); watchInstall(); }
+  catch (e) { say('updmsg', e.message, 'warn'); }
+};
+refreshUpdate();
+$('updscan').click();  // un fichier de mise à jour déjà présent sur un disque est proposé d'emblée
 
 load();
 </script>

@@ -10,6 +10,7 @@ import re
 import subprocess
 
 STANDARD_RATES = (44100, 48000)
+ASOUND = "/proc/asound"  # remplaçable dans les tests
 _CARD = re.compile(r"card (\d+): (\S+) \[(.*?)\], device (\d+): (.*?) \[")
 
 
@@ -79,3 +80,29 @@ def probe(cfg, recording: bool, run=subprocess.run) -> dict:
         "channels": cfg.channels in p["channels"] if p["channels"] else None,
     }
     return result
+
+
+def capture_busy(device: str) -> bool | None:
+    """True si la capture de `device` est ouverte par un programme, False si elle est libre, None si on ne sait pas.
+
+    Lit l'état ALSA (`/proc/asound/cardN/pcmDc/sub0/status` vaut « closed » quand la carte est libre)."""
+    m = re.fullmatch(r"(?:plug)?hw:(?:CARD=)?([^,]+)(?:,(?:DEV=)?(\d+))?", device)
+    if not m:
+        return None
+    name, dev = m.group(1), int(m.group(2) or 0)
+    index = int(name) if name.isdigit() else None
+    if index is None:
+        try:
+            with open(f"{ASOUND}/cards", encoding="utf-8") as f:
+                for card in re.finditer(r"^\s*(\d+) \[(\S+)\s*\]", f.read(), re.M):
+                    if card.group(2) == name:
+                        index = int(card.group(1))
+        except OSError:
+            return None
+    if index is None:
+        return None
+    try:
+        with open(f"{ASOUND}/card{index}/pcm{dev}c/sub0/status", encoding="utf-8") as f:
+            return not f.read().strip().startswith("closed")
+    except OSError:
+        return None

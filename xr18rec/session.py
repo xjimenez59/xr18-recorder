@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
 import shutil
 import signal
 import subprocess
@@ -13,15 +14,34 @@ import time
 from collections import deque
 from datetime import datetime
 
-from . import storage, wavtools, xr18osc
-from .config import Config
-from .reaper import LAYOUT_FILE, load_layout, write_project
+from . import audio, storage, wavtools, xr18osc
+from .config import FORMAT_BYTES, Config
+from .meters import LevelMonitor, msb_offset
+from .reaper import LAYOUT_FILE, channel_names, load_layout, write_project
 
+MONITOR_IDLE_S = 10.0  # contrôle des niveaux : arrêt si plus aucune page ne l'interroge
+MONITOR_MAX_S = 600.0  # et en tout cas au bout de 10 minutes
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 class RecorderError(RuntimeError):
     pass
+
+
+class _Monitor:
+    """Lecture de contrôle de la carte son (sans enregistrer) pour voir les niveaux avant la prise."""
+
+    def __init__(self, proc: subprocess.Popen, mon: LevelMonitor):
+        self.proc, self.mon = proc, mon
+        self.started = self.last_poll = time.monotonic()
+        self.stop = threading.Event()
+        self.thread: threading.Thread | None = None
+        self.error: str | None = None
+        self.layout = None
+        self.stderr: deque[str] = deque(maxlen=10)
+
+    def alive(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
 
 
 def sanitize_name(name: str | None) -> str:
@@ -41,6 +61,9 @@ class Recorder:
         self._error: str | None = None
         self._stopping = False
         self._layout_thread: threading.Thread | None = None
+        self._levels: LevelMonitor | None = None
+        self._monitor: _Monitor | None = None
+        self._levels_thread: threading.Thread | None = None
         self._notice: str | None = None
         self._active_dir = self._restore_choice()
 
@@ -87,6 +110,7 @@ class Recorder:
                 "error": self._error,
                 "storage": self._storage_summary(),
                 "actual": self._actual_format(),
+                "levels": self._levels_summary(),
                 "stderr_tail": list(self._stderr_tail),
                 "config": {
                     "device": self.cfg.device, "channels": self.cfg.channels,
@@ -94,6 +118,184 @@ class Recorder:
                     "segment_seconds": self.cfg.segment_seconds,
                 },
             }
+
+    def _level_names(self, count: int) -> list[str]:
+        return channel_names(load_layout(self._session_dir) if self._session_dir else None, count)
+
+    def _levels_summary(self) -> dict:
+        """Voies saturées pendant la prise (pour l'avertissement de l'accueil)."""
+        mon = self._levels
+        if mon is None:
+            return {"clipped": []}
+        snap = mon.snapshot()
+        names = self._level_names(mon.channels)
+        return {"clipped": [{"channel": i + 1, "name": names[i], "first_s": c["events"][0] if c["events"] else None}
+                            for i, c in enumerate(snap["channels"]) if c["clipped"]]}
+
+    # ---- contrôle des niveaux avant la prise --------------------------------
+    def _terminate(self, proc: subprocess.Popen) -> None:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
+    @staticmethod
+    def _close_pipes(proc: subprocess.Popen) -> None:
+        """À n'appeler qu'une fois le fil de lecture terminé (un descripteur fermé peut être réutilisé)."""
+        for pipe in (proc.stdout, proc.stderr):
+            try:
+                pipe.close()
+            except (OSError, AttributeError):
+                pass
+
+    def _stop_monitor(self) -> bool:
+        """Arrête le contrôle s'il tourne ; renvoie True si la carte vient d'être libérée par nos soins."""
+        m = self._monitor
+        if m is None or not (m.alive() or m.proc.poll() is None):
+            return False
+        m.stop.set()
+        self._terminate(m.proc)
+        if m.thread is not None:
+            m.thread.join(timeout=3)
+        if m.thread is None or not m.thread.is_alive():
+            self._close_pipes(m.proc)
+        return True
+
+    def _wait_capture_free(self, timeout: float = 2.0) -> None:
+        """Attend que la carte soit libre ; sans certitude (état illisible), on n'attend pas et on laisse arecord juger."""
+        deadline = time.monotonic() + timeout
+        while audio.capture_busy(self.cfg.device) is True and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    def monitor_start(self) -> dict:
+        with self._lock:
+            if self.is_recording():
+                raise RecorderError("un enregistrement est en cours : les niveaux sont affichés en direct")
+            m = self._monitor
+            if m is not None and m.alive():
+                m.last_poll = time.monotonic()
+                return self.levels()
+            c = self.cfg
+            width = FORMAT_BYTES[c.format]
+            cmd = [c.arecord_bin, "-D", c.device, "-c", str(c.channels), "-r", str(c.rate), "-f", c.format,
+                   "-t", "raw", "-q", "-"]
+            try:
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+            except OSError as exc:
+                raise RecorderError(f"lancement d'arecord impossible : {exc}") from exc
+            m = _Monitor(proc, LevelMonitor(None, c.rate, c.channels, width, msb_offset(c.format, width)))
+            drain = threading.Thread(target=self._drain_stderr, args=(m,), daemon=True, name="monitor-stderr")
+            drain.start()
+            try:
+                proc.wait(timeout=0.6)  # carte absente ou occupée : arecord s'arrête aussitôt
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                drain.join(timeout=1)
+                self._terminate(proc)
+                self._close_pipes(proc)
+                tail = m.stderr[-1] if m.stderr else f"arecord s'est arrêté (code {proc.returncode})"
+                raise RecorderError(f"contrôle des niveaux impossible : {tail}")
+            m.started = m.last_poll = time.monotonic()  # le délai d'inactivité part du vrai démarrage du flux
+            m.thread = threading.Thread(target=self._monitor_loop, args=(m,), daemon=True, name="monitor")
+            self._monitor = m
+            m.thread.start()
+            if c.xr18_host:
+                threading.Thread(target=self._monitor_layout, args=(m,), daemon=True, name="monitor-layout").start()
+            return self.levels()
+
+    def monitor_stop(self) -> dict:
+        with self._lock:
+            self._stop_monitor()
+            return self.levels()
+
+    def _drain_stderr(self, m: _Monitor) -> None:
+        try:
+            for raw in m.proc.stderr:  # type: ignore[union-attr]
+                line = raw.decode("utf-8", "replace").strip()
+                if line:
+                    m.stderr.append(line)
+        except (OSError, ValueError):
+            pass
+
+    def _monitor_layout(self, m: _Monitor) -> None:
+        try:
+            m.layout = xr18osc.fetch_layout(self.cfg.xr18_host, self.cfg.xr18_osc_port, timeout=3.0)
+        except (xr18osc.OscError, OSError):
+            pass  # noms génériques
+
+    def _monitor_loop(self, m: _Monitor) -> None:
+        fd = m.proc.stdout.fileno()  # type: ignore[union-attr]
+        try:
+            while not m.stop.is_set():
+                now = time.monotonic()
+                if now - m.last_poll > MONITOR_IDLE_S or now - m.started > MONITOR_MAX_S:
+                    break  # personne ne regarde plus (ou trop long) : on rend la carte
+                data = os.read(fd, 65536)
+                if not data:
+                    if not m.stop.is_set():
+                        m.error = "flux audio interrompu" + (f" : {m.stderr[-1]}" if m.stderr else "")
+                    break
+                m.mon.feed(data)
+        except (OSError, ValueError):
+            if not m.stop.is_set():
+                m.error = "flux audio interrompu"
+        except Exception as exc:  # jamais d'incidence sur le reste du programme
+            m.error = f"{type(exc).__name__}: {exc}"
+        finally:
+            self._drain_and_terminate(m)
+            self._close_pipes(m.proc)
+
+    def _drain_and_terminate(self, m: _Monitor) -> None:
+        """Arrête arecord en continuant de lire son flux : tube plein, il resterait bloqué en écriture et
+        ne réagirait pas à l'arrêt (il faudrait le tuer de force, ce qui laisse la carte occupée un moment)."""
+        proc, fd = m.proc, m.proc.stdout.fileno()  # type: ignore[union-attr]
+        if proc.poll() is None:
+            proc.terminate()
+        end = time.monotonic() + 3
+        while time.monotonic() < end:
+            try:
+                ready, _w, _x = select.select([fd], [], [], 0.2)
+                if ready and not os.read(fd, 65536):
+                    break  # fin du flux : arecord est sorti
+            except (OSError, ValueError):
+                break
+            if not ready and proc.poll() is not None:
+                break
+        self._terminate(proc)  # tue de force s'il vit encore
+
+    def levels(self) -> dict:
+        """Niveaux : de la prise en cours, du contrôle en cours, ou de la dernière prise terminée."""
+        m = self._monitor
+        recording = self.is_recording()
+        if recording and self._levels is not None:
+            snap, mode = self._levels.snapshot(), "recording"
+            snap["names"] = self._level_names(self._levels.channels)
+        elif m is not None and m.alive():
+            m.last_poll = time.monotonic()
+            snap, mode = m.mon.snapshot(), "monitor"
+            snap["names"] = channel_names(m.layout, m.mon.channels)
+        elif self._levels is not None:
+            snap, mode = self._levels.snapshot(), "last"
+            snap["names"] = self._level_names(self._levels.channels)
+        else:
+            snap, mode = {"has_data": False, "elapsed_s": 0, "skipped_s": 0, "channels": [], "error": None,
+                          "names": []}, "none"
+        snap["mode"] = mode
+        snap["active"] = mode in ("recording", "monitor")
+        snap["monitor_error"] = m.error if (m is not None and not m.alive() and mode != "recording") else None
+        return snap
+
+    def reset_levels(self) -> dict:
+        m = self._monitor
+        if m is not None and m.alive() and not self.is_recording():
+            m.mon.reset_display()
+        elif self._levels is not None:
+            self._levels.reset_display()
+        return self.levels()
 
     def _actual_format(self) -> dict | None:
         """Fréquence, format et voies réellement écrits (d'après l'en-tête du premier WAV de la session)."""
@@ -205,6 +407,8 @@ class Recorder:
         with self._lock:
             if self.is_recording():
                 raise RecorderError("un enregistrement est déjà en cours")
+            if self._stop_monitor():  # REC pendant le contrôle des niveaux : on libère la carte, puis on enregistre
+                self._wait_capture_free()
             if self._active_dir not in [v.path for v in self.volumes()]:
                 raise RecorderError(f"emplacement d'enregistrement absent : {self._active_dir}")
             try:
@@ -237,6 +441,13 @@ class Recorder:
                              name="arecord-stderr").start()
             threading.Thread(target=self._watch_disk, args=(self._proc,), daemon=True,
                              name="disk-watch").start()
+            width = FORMAT_BYTES[self.cfg.format]  # niveaux : lecture seule des fichiers, sans effet sur arecord
+            self._levels = LevelMonitor(directory, self.cfg.rate, self.cfg.channels, width,
+                                        msb_offset(self.cfg.format, width))
+            proc = self._proc
+            self._levels_thread = threading.Thread(target=self._levels.run, args=(lambda: proc.poll() is None,),
+                                                   daemon=True, name="levels")
+            self._levels_thread.start()
             self._layout_thread = None
             if self.cfg.xr18_host:  # après le lancement d'arecord : ne retarde pas l'enregistrement
                 self._layout_thread = threading.Thread(target=self._snapshot_layout, args=(directory,),
@@ -295,6 +506,8 @@ class Recorder:
                 except subprocess.TimeoutExpired:
                     proc.kill()
         self._stopped = time.monotonic()
+        if self._levels_thread is not None:
+            self._levels_thread.join(timeout=15)  # bilan des niveaux (levels.json) avant le projet Reaper
         self._write_project()
 
     def stop(self) -> dict:
@@ -306,6 +519,7 @@ class Recorder:
         return self.status()
 
     def shutdown(self) -> None:
+        self._stop_monitor()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 self._stopping = True

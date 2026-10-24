@@ -14,6 +14,7 @@ import time
 import uuid
 
 from . import wavtools
+from .meters import LEVELS_FILE
 from .xr18osc import NUM_INPUTS, Layout, color_rgb
 
 _SEGMENT = re.compile(r"take(?:-(\d+))?\.wav", re.IGNORECASE)
@@ -29,6 +30,39 @@ def load_layout(directory: str) -> Layout | None:
             return Layout.from_dict(json.load(f))
     except (OSError, ValueError):
         return None
+
+
+def load_levels(directory: str) -> dict | None:
+    """Bilan des niveaux de la prise (levels.json), ou None."""
+    try:
+        with open(os.path.join(directory, LEVELS_FILE), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def channel_names(layout: Layout | None, count: int) -> list[str]:
+    """Nom de chaque voie USB : entrées 1..16 puis mix général L/R (voies 17 et 18)."""
+    names = []
+    for i in range(count):
+        if i < NUM_INPUTS:
+            name = layout.channels[i].name if layout else ""
+            names.append(name or f"Ch {i + 1:02d}")
+        elif i in (NUM_INPUTS, NUM_INPUTS + 1):
+            main = (layout.main.name if layout else "") or "Mix"
+            names.append(f"{main} {'L' if i == NUM_INPUTS else 'R'}")
+        else:
+            names.append(f"Ch {i + 1:02d}")
+    return names
+
+
+def _markers(levels: dict | None, names: list[str], limit: int = 100) -> list[tuple[float, str]]:
+    out = []
+    for ch in (levels or {}).get("channels", []):
+        idx = int(ch.get("channel", 0)) - 1
+        if 0 <= idx < len(names):
+            out += [(float(t), f"SAT {names[idx]}") for t in ch.get("events", [])]
+    return sorted(out)[:limit]
 
 
 def mono_chanmode(channel: int) -> int:
@@ -93,6 +127,9 @@ def build_project(directory: str, layout: Layout | None = None) -> str:
     out = [f'<REAPER_PROJECT 0.1 "7.0/xr18rec" {int(time.time())}\n',
            "  RIPPLE 0\n  AUTOXFADE 1\n",
            f"  SAMPLERATE {ref.rate} 0 0\n  TEMPO 120 4 4\n"]
+    # marqueurs aux instants de saturation relevés pendant la prise (format à vérifier dans Reaper)
+    for k, (pos, label) in enumerate(_markers(load_levels(directory), channel_names(layout, ref.channels)), start=1):
+        out.append(f"  MARKER {k} {pos:.6f} {_q(label)} 0 0 1 R {_guid()} 0\n")
     for name, rgb, mode in tracks:
         out.append(f"  <TRACK {_guid()}\n    NAME {_q(name)}\n{_peakcol(rgb)}    NCHAN 2\n")
         for seg, pos, info in zip(segments, positions, infos):

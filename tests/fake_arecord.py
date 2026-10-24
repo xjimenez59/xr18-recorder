@@ -7,6 +7,8 @@ de l'en-tête sur SIGINT. Débit simulé : variable FAKE_ARECORD_BPS (octets/s, 
 Si FAKE_ARECORD_OVERRUN=1, écrit « overrun!!! » sur stderr toutes les 0,2 s.
 """
 
+import atexit
+import math
 import os
 import signal
 import struct
@@ -58,7 +60,45 @@ def main(argv):
     bps = int(os.environ.get("FAKE_ARECORD_BPS", "20000"))
     bps -= bps % (ch * width)
     stop = {"v": False}
+    signal_on = os.environ.get("FAKE_ARECORD_SIGNAL") == "1"
+    maxv = (1 << (8 * width - 1)) - 1
+    t0, counter = time.monotonic(), [0]
+
+    def frames(count):
+        """Un sinus par voie (amplitude croissante) ; la voie 3 sature entre 1,0 s et 1,5 s après le début."""
+        clip = 1.0 <= time.monotonic() - t0 < 1.5
+        out = bytearray()
+        for _ in range(count):
+            k = counter[0]
+            counter[0] += 1
+            for c in range(ch):
+                a = 0.04 + 0.05 * c
+                v = int(a * math.sin(2 * math.pi * k / 32) * maxv)
+                if clip and c == 2:
+                    v = maxv if (k // 4) % 2 == 0 else -maxv - 1
+                out += v.to_bytes(width, "little", signed=True)
+        return bytes(out)
     signal.signal(signal.SIGINT, lambda *_: stop.update(v=True))
+    signal.signal(signal.SIGTERM, lambda *_: stop.update(v=True))
+    lock = os.environ.get("FAKE_ARECORD_LOCK")  # simule une carte exclusive : un seul programme à la fois
+    if lock:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            print("arecord: main:831: audio open error: Device or resource busy", file=sys.stderr)
+            return 1
+        atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
+    if name == "-":  # flux brut sur la sortie standard (contrôle des niveaux)
+        out = sys.stdout.buffer
+        while not stop["v"]:
+            time.sleep(0.05)
+            n = int(bps * 0.05) // (ch * width)
+            try:
+                out.write(frames(n) if signal_on else bytes(n * ch * width))
+                out.flush()
+            except (BrokenPipeError, OSError):
+                break
+        return 0
     print(f"Recording WAVE '{name}' : {args['-f']}, Rate {rate} Hz, Channels {ch}", file=sys.stderr, flush=True)
 
     base, ext = os.path.splitext(name)
@@ -73,7 +113,7 @@ def main(argv):
     while not stop["v"]:
         time.sleep(tick)
         n = int(bps * tick) // (ch * width) * (ch * width)
-        f.write(bytes(n))
+        f.write(frames(n // (ch * width)) if signal_on else bytes(n))
         size += n
         if os.environ.get("FAKE_ARECORD_OVERRUN") == "1" and time.monotonic() - last_over > 0.2:
             print("overrun!!! (at least 1.000 ms long)", file=sys.stderr, flush=True)

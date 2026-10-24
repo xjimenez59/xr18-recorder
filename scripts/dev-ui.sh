@@ -10,6 +10,9 @@ TMP="${TMPDIR:-/tmp}/xr18rec-dev"
 mkdir -p "$TMP"
 cat > "$TMP/arecord" <<EOF
 #!/bin/sh
+export FAKE_ARECORD_SIGNAL=1  # signaux de test : la voie 3 sature 1 s après le début
+export FAKE_ARECORD_BPS=200000  # débit simulé plus proche du réel pour le contrôle des niveaux
+export FAKE_ARECORD_LOCK="$TMP/carte.lock"  # carte exclusive : un seul programme à la fois, comme l'XR18
 exec python3 "$ROOT/tests/fake_arecord.py" "\$@"
 EOF
 chmod +x "$TMP/arecord"

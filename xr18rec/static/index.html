@@ -24,6 +24,19 @@
   </div>
 </div>
 
+<div class="card" id="levelscard">
+  <div class="row" style="justify-content:space-between">
+    <b>Niveaux</b><span class="muted" id="lvlstate"></span>
+  </div>
+  <div class="meters" id="meters" hidden></div>
+  <div class="lvlwarn" id="lvlwarn"></div>
+  <div class="muted" id="lvlok"></div>
+  <div class="row" style="margin-top:8px">
+    <button class="ghost" id="lvlmon">Écouter les niveaux</button>
+    <button class="ghost" id="lvlreset" hidden>Remise à zéro des crêtes</button>
+  </div>
+</div>
+
 <div class="card">
   <b>Retours des musiciens</b>
   <div style="margin-top:8px; text-align:center">
@@ -91,6 +104,69 @@ for (const [target, m] of Object.entries(MUTES)) {
   };
 }
 pollMute(); setInterval(pollMute, 2000);
+// Vumètres : niveau de crête de chaque voie (dB pleine échelle), crête mémorisée, témoin de saturation.
+// Source : la prise en cours, un contrôle avant la prise (bouton « Écouter »), ou la dernière prise.
+const dbPct = db => db === null ? 0 : Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+const MODE_TEXT = {recording: 'en direct (prise)', monitor: 'contrôle en direct', last: 'dernière prise', none: ''};
+let meterCount = 0, lvlMode = 'none';
+function buildMeters(names) {
+  const box = $('meters'); box.replaceChildren(); meterCount = names.length;
+  names.forEach((name, i) => {
+    const m = document.createElement('div'); m.className = 'meter'; m.title = name;
+    const led = document.createElement('div'); led.className = 'led';
+    const bar = document.createElement('div'); bar.className = 'bar';
+    const fill = document.createElement('div'); fill.className = 'fill';
+    const hold = document.createElement('div'); hold.className = 'hold';
+    bar.append(fill, hold);
+    const lab = document.createElement('small'); lab.textContent = i < 16 ? String(i + 1) : (i === 16 ? 'L' : i === 17 ? 'R' : String(i + 1));
+    m.append(led, bar, lab); box.append(m);
+  });
+}
+function renderLevels(d) {
+  lvlMode = d.mode;
+  $('lvlstate').textContent = MODE_TEXT[d.mode] || '';
+  const mon = $('lvlmon');
+  mon.hidden = d.mode === 'recording';  // pendant la prise, les niveaux sont déjà affichés
+  mon.textContent = d.mode === 'monitor' ? 'Arrêter le contrôle' : 'Écouter les niveaux';
+  $('lvlreset').hidden = !d.has_data;
+  $('meters').hidden = !d.has_data;
+  if (!d.has_data) {
+    $('lvlwarn').textContent = '';
+    $('lvlok').textContent = d.monitor_error ? '⚠ ' + d.monitor_error
+      : d.mode === 'monitor' ? 'Contrôle en cours… en attente du signal.'
+      : 'Écouter les niveaux avant la prise : REC reste possible à tout moment (le contrôle s’arrête alors tout seul).';
+    return;
+  }
+  if (meterCount !== d.channels.length) buildMeters(d.names);
+  const cols = $('meters').children, bad = [];
+  d.channels.forEach((c, i) => {
+    const m = cols[i], fill = m.querySelector('.fill'), hold = m.querySelector('.hold');
+    fill.style.height = dbPct(d.active ? c.window_db : null) + '%';
+    fill.className = 'fill' + (c.window_db !== null && c.window_db >= -6 ? ' hot' : c.window_db !== null && c.window_db >= -18 ? ' mid' : '');
+    hold.style.bottom = dbPct(c.peak_db) + '%'; hold.style.display = c.peak_db === null ? 'none' : '';
+    m.querySelector('.led').className = 'led' + (c.clipped ? ' clip' : '');
+    m.classList.toggle('clipped', c.clipped);
+    m.title = `${d.names[i]} : crête ${c.take_peak_db === null ? '−∞' : c.take_peak_db + ' dB'}` + (c.clipped ? ' — SATURÉE' : '');
+    if (c.clipped) bad.push(`${d.names[i]}${d.mode !== 'monitor' && c.events.length ? ' (' + fmt(c.events[0]) + ')' : ''}`);
+  });
+  $('lvlwarn').textContent = bad.length ? '⚠ Saturation : ' + bad.join(', ') : '';
+  const partial = d.skipped_s > 0 ? ` Analyse partielle : ${Math.round(d.skipped_s)} s non analysées (Pi trop chargé).` : '';
+  const none = d.mode === 'recording' ? 'Aucune saturation pour le moment.' : d.mode === 'monitor' ? 'Aucune saturation.' : 'Aucune saturation pendant la prise.';
+  const load = d.load_pct >= 50 ? ` Analyse des niveaux : ${Math.round(d.load_pct)} % d’un cœur du Pi.` : '';
+  $('lvlok').textContent = (bad.length ? '' : none) + partial + load + (d.monitor_error ? ' ⚠ ' + d.monitor_error : '');
+}
+async function pollLevels() {
+  let wait = 3000;
+  try { const d = await api('/api/levels'); renderLevels(d); wait = d.active ? 250 : 3000; } catch (e) { /* on réessaie */ }
+  setTimeout(pollLevels, wait);
+}
+$('lvlreset').onclick = async () => { try { renderLevels(await api('/api/levels/reset', {})); } catch (e) { /* ignoré */ } };
+$('lvlmon').onclick = async () => {
+  try { renderLevels(await api('/api/levels/monitor', {on: lvlMode !== 'monitor'})); }
+  catch (e) { $('lvlok').textContent = '⚠ ' + e.message; }
+};
+pollLevels();
+
 const controls = initRecordControls();
 pollStatus(controls.render);
 setInterval(() => pollStatus(controls.render), 1000);

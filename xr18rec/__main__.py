@@ -78,6 +78,24 @@ def cmd_bootconfig(args) -> int:
     return 0  # même invalide : le service doit démarrer avec la configuration précédente
 
 
+def cmd_meterbench(args) -> int:
+    """Coût de l'analyse des niveaux sur cette machine (à lancer sur le Pi) : 18 voies, bruit plein."""
+    import os
+    import time
+
+    from . import meters
+
+    frames = args.rate // 10
+    block = os.urandom(frames * args.channels * args.width)
+    t = time.perf_counter()
+    for _ in range(args.seconds * 10):
+        meters.window_stats(block, args.channels, args.width, args.width - 1)
+    cost = (time.perf_counter() - t) / args.seconds
+    print(f"{args.channels} voies, {args.rate} Hz, {args.width * 8} bits : {cost * 1000:.0f} ms de calcul par "
+          f"seconde d'audio, soit {cost * 100:.1f} % d'un cœur")
+    return 0
+
+
 def cmd_growfs(args) -> int:
     from . import growfs
     return growfs.run()
@@ -150,6 +168,12 @@ def main(argv=None) -> int:
     s.add_argument("--boot", help="partition de démarrage (défaut : /boot/firmware ou /boot)")
     s.add_argument("--dest", default="/etc/xr18rec.json")
     s.set_defaults(fn=cmd_bootconfig)
+    s = sub.add_parser("meterbench", help="mesure le coût de l'analyse des niveaux sur cette machine")
+    s.add_argument("--channels", type=int, default=18)
+    s.add_argument("--rate", type=int, default=48000)
+    s.add_argument("--width", type=int, default=4, help="octets par échantillon (4 = S32_LE)")
+    s.add_argument("--seconds", type=int, default=5)
+    s.set_defaults(fn=cmd_meterbench)
     s = sub.add_parser("growfs", help="(root) complète l'agrandissement de la carte SD si le 1er démarrage a été interrompu")
     s.set_defaults(fn=cmd_growfs)
     s = sub.add_parser("automount", help="(root) monte ou démonte un disque USB ; appelé par systemd")

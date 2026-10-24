@@ -135,6 +135,8 @@ def make_handler(rec: Recorder, app: App):
                 return self._json(system.info())
             if path == "/api/status":
                 return self._json(rec.status())
+            if path == "/api/levels":
+                return self._json(rec.levels())
             if path == "/api/mute":
                 return self._mix_call(app.mixer.mute_state if app.mixer else None)
             if path == "/api/storage":
@@ -186,6 +188,14 @@ def make_handler(rec: Recorder, app: App):
                 return self._mix_call(lambda: app.mixer.set_mute(str(body.get("target")), bool(body.get("muted"))))
             if path == "/api/settings":
                 return self._app_call(lambda: app.apply(self._body()))
+            if path == "/api/levels/monitor":
+                try:
+                    on = bool(self._body().get("on"))
+                    return self._json(rec.monitor_start() if on else rec.monitor_stop())
+                except RecorderError as exc:
+                    return self._json({"error": str(exc)}, 409)
+            if path == "/api/levels/reset":
+                return self._json(rec.reset_levels())
             if path == "/api/settings/reset":
                 return self._app_call(app.reset)
             if path == "/api/xr18/discover":

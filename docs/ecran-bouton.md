@@ -42,7 +42,7 @@ Les GPIO2 et GPIO3 (bus I²C) ne peuvent pas servir au bouton ni aux LED.
 - **Pendant une prise, maintenir 2 s** : arrête (barre de progression à l'écran). Un appui court affiche seulement un rappel : pas d'arrêt accidentel.
 - **Au repos, maintenir 5 s** : éteint le Pi proprement (à faire avant de couper l'alimentation).
 - **LED rouge** : fixe pendant la prise, clignote vite en cas d'alerte. **LED verte** : prêt ; clignote s'il y a une alerte.
-- **Écran** : au repos, version, « PRET » (ou « ERREUR »), temps restant, stockage, adresse IP et nom `.local` en alternance. En prise : point rouge clignotant, nom de la session, chronomètre, temps restant, espace libre. Une alerte remplace la dernière ligne (barre inversée, plusieurs alertes défilent).
+- **Écran** : au repos, version, « PRET » (ou « ERREUR »), temps restant, stockage, adresse IP et nom `.local` en alternance. En prise : point rouge clignotant, nom de la session, chronomètre en chiffres sept segments (le plus grand possible), temps restant. Une alerte remplace la ligne d'en-tête (barre inversée en haut, plusieurs alertes défilent).
 
 Aperçu sans matériel : `python3 -m xr18rec panel --preview repos|enregistrement|alerte` (image en texte).
 

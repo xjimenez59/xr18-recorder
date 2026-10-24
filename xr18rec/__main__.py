@@ -68,13 +68,15 @@ def cmd_panel(args) -> int:
 
 
 def panel_preview(scenario: str) -> int:
-    """Affiche en texte l'écran d'un scénario (repos, enregistrement, alerte) : aucun matériel nécessaire."""
+    """Affiche en texte l'écran d'un scénario (repos, enregistrement, debut, longue, alerte) : aucun matériel nécessaire."""
     from . import oled, panel
     base = {"state": "idle", "version": "0.3.3", "remaining_s": 380000, "free_gb": 926.0, "alerts": [],
             "storage": {"kind": "usb"}, "overruns": 0}
     scenarios = {
         "repos": base,
         "enregistrement": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 4965, "remaining_s": 91000},
+        "debut": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 312, "remaining_s": 91000},
+        "longue": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 37425, "remaining_s": 3000},
         "alerte": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 65, "overruns": 2,
                    "alerts": [{"level": "error", "code": "overruns", "message": "x"}]},
     }
@@ -211,7 +213,7 @@ def main(argv=None) -> int:
     s.set_defaults(fn=cmd_serve)
     s = sub.add_parser("panel", help="face avant (écran OLED, bouton, LED) ; lancé automatiquement par serve")
     s.add_argument("--config")
-    s.add_argument("--preview", metavar="SCENARIO", help="affiche un écran en texte : repos, enregistrement, alerte")
+    s.add_argument("--preview", metavar="SCENARIO", help="affiche un écran en texte : repos, enregistrement, debut, longue, alerte")
     s.add_argument("--simulate", action="store_true", help="simulateur dans le navigateur (écran, bouton, LED), sans matériel")
     s.add_argument("--sim-port", type=int, default=8100, help="port du simulateur (défaut 8100)")
     s.set_defaults(fn=cmd_panel)

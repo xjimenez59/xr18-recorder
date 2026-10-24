@@ -99,17 +99,41 @@ class ButtonLogic:
         return action, overlay
 
 
-def _big_clock(c: oled.Canvas, y: int, text: str, scale: int) -> None:
-    """Chiffres agrandis ; les deux-points sont resserrés pour que 10:23:45 tienne sur 128 pixels."""
-    widths = [4 * scale if ch == ":" else 5 * scale + 2 for ch in text]
-    x = (oled.WIDTH - (sum(widths) - 2)) // 2
-    for ch, w in zip(text, widths):
+_SEGMENTS = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgecd",
+             "7": "abc", "8": "abcdefg", "9": "abcdfg"}
+
+
+def _digit(c: oled.Canvas, x: int, y: int, w: int, h: int, t: int, ch: str) -> None:
+    """Un chiffre « sept segments » de w×h pixels, traits de t pixels."""
+    ym = (h - t) // 2
+    segs = {"a": (x + t, y, w - 2 * t, t), "g": (x + t, y + ym, w - 2 * t, t), "d": (x + t, y + h - t, w - 2 * t, t),
+            "f": (x, y, t, ym + t), "b": (x + w - t, y, t, ym + t),
+            "e": (x, y + ym, t, h - ym), "c": (x + w - t, y + ym, t, h - ym)}
+    for name in _SEGMENTS[ch]:
+        c.rect(*segs[name])
+
+
+def big_clock(c: oled.Canvas, y: int, text: str, h: int = 36) -> None:
+    """Chronomètre en chiffres sept segments, le plus grand possible : la largeur de chaque chiffre s'adapte au texte
+    (08:05, 1:23:45 ou 10:23:45 occupent toute la largeur de l'écran)."""
+    digits = sum(ch != ":" for ch in text)
+    colons = len(text) - digits
+    gap = 3
+    for w in range(30, 11, -1):
+        t = 6 if w >= 24 else 5 if w >= 17 else 4
+        colon_w = t + 2
+        total = digits * w + colons * colon_w + (len(text) - 1) * gap
+        if total <= oled.WIDTH - 2:
+            break
+    x = (oled.WIDTH - total) // 2
+    for ch in text:
         if ch == ":":
-            c.rect(x + scale, y + 2 * scale, scale, scale)
-            c.rect(x + scale, y + 5 * scale, scale, scale)
+            c.rect(x + 1, y + h // 4 - t // 2, t, t)
+            c.rect(x + 1, y + 3 * h // 4 - t // 2, t, t)
+            x += colon_w + gap
         else:
-            c.text(x, y, ch, scale)
-        x += w
+            _digit(c, x, y, w, h, t, ch)
+            x += w + gap
 
 
 def frame_key(st: dict | None, now: float, net: tuple[str, str], overlay=None) -> tuple:
@@ -135,29 +159,28 @@ def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], ov
     alerts = st.get("alerts") or []
     storage = st.get("storage") or {}
     where = "USB" if storage.get("kind") == "usb" else "SD"
+    alert_text = ("! " + short_alert(alerts[int(now / 3) % len(alerts)], st)) if alerts else None
     if recording:
-        if int(now * 2) % 2 == 0:
-            c.disc(4, 4, 3)
-        c.text(12, 0, "REC " + str(st.get("session") or "")[:15])
-        _big_clock(c, 14, fmt_clock(st.get("elapsed_s", 0)), 3)
-        c.text(0, 40, "Reste " + fmt_remaining(st.get("remaining_s")))
-        c.text(oled.WIDTH - c.text_width(where), 40, where)
-        info = f"{st.get('free_gb', 0):.0f} Go libres"
+        if not alert_text:  # une alerte prend la place de la ligne d'en-tête (le chronomètre reste visible)
+            if int(now * 2) % 2 == 0:
+                c.disc(4, 4, 3)
+            c.text(12, 0, "REC " + str(st.get("session") or "")[:15])
+        big_clock(c, 12, fmt_clock(st.get("elapsed_s", 0)))
+        c.text(0, 55, "Reste " + fmt_remaining(st.get("remaining_s")))
+        c.text(oled.WIDTH - c.text_width(where), 55, where)
     else:
-        c.text(0, 0, "XR18 REC")
-        version = "v" + str(st.get("version", ""))
-        c.text(oled.WIDTH - c.text_width(version), 0, version)
+        if not alert_text:
+            c.text(0, 0, "XR18 REC")
+            version = "v" + str(st.get("version", ""))
+            c.text(oled.WIDTH - c.text_width(version), 0, version)
         error = st.get("state") == "error"
         c.centered(16, "ERREUR" if error else "PRET", 3)
         c.text(0, 40, "Reste " + fmt_remaining(st.get("remaining_s")))
         c.text(oled.WIDTH - c.text_width(where), 40, where)
-        info = net[int(now / 4) % 2]
-    if alerts:
-        text = "! " + short_alert(alerts[int(now / 3) % len(alerts)], st)
-        c.rect(0, 51, oled.WIDTH, 13)
-        c.text(2, 54, text[:20], invert=True)
-    else:
-        c.text(0, 54, info)
+        c.text(0, 54, net[int(now / 4) % 2])
+    if alert_text:
+        c.rect(0, 0, oled.WIDTH, 11)
+        c.text(2, 2, alert_text[:20], invert=True)
     if overlay:
         message, fraction = overlay
         c.rect(0, 38, oled.WIDTH, 26, False)

@@ -157,8 +157,10 @@ class RenderTests(unittest.TestCase):
         self.assertNotEqual(self.render(None).buf, idle.buf)
         longest = self.render({**STATUS_REC, "elapsed_s": 10 * 3600 + 23 * 60 + 45})  # 10:23:45 doit tenir
         for edge in (0, 127):  # rien ne touche les bords : le chronomètre n'est pas rogné
-            self.assertFalse(any(any(row) for row in region_text(longest, edge, 14, 1, 21)))
-        self.assertTrue(any(any(row) for row in region_text(longest, 2, 14, 8, 21)))
+            self.assertFalse(any(any(row) for row in region_text(longest, edge, 12, 1, 36)))
+        self.assertTrue(any(any(row) for row in region_text(longest, 1, 12, 14, 36)))  # les 8 caractères occupent bien la largeur
+        short = self.render({**STATUS_REC, "elapsed_s": 65})  # 01:05 : chiffres plus grands que 10:23:45
+        self.assertGreater(lit(short), lit(longest) * 0.8)
 
     def test_record_dot_blinks(self):
         on, off = self.render(STATUS_REC, 0.0), self.render(STATUS_REC, 0.6)
@@ -168,7 +170,7 @@ class RenderTests(unittest.TestCase):
         alerts = [{"code": "overruns", "message": "x"}, {"code": "take_undervoltage", "message": "y"}]
         a, b = self.render({**STATUS_REC, "overruns": 3, "alerts": alerts}, 0.0), self.render({**STATUS_REC, "overruns": 3, "alerts": alerts}, 3.5)
         self.assertNotEqual(a.buf, b.buf)
-        self.assertEqual(region_text(a, 0, 51, 1, 1)[0][0], 1)  # barre allumée
+        self.assertEqual(region_text(a, 0, 0, 1, 1)[0][0], 1)  # barre allumée en haut de l'écran
         self.assertEqual(panel.short_alert(alerts[0], {"overruns": 3}), "AUDIO PERDU x3")
         self.assertEqual(panel.short_alert({"code": "inconnu", "message": "bizarre"}, {}), "BIZARRE")
 

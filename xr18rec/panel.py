@@ -215,6 +215,8 @@ class Panel:
         self._awake_until = clock() + float(cfg.panel_sleep_s)
         self._drawn = float("-inf")
         self._last_key = None
+        self._was_pressed = False
+        self._swallow = False
         self._was_active = True
         self.stop_event = threading.Event()
 
@@ -253,8 +255,14 @@ class Panel:
         now = self.clock()
         st = self.status
         recording = bool(st and st.get("state") == "recording")
+        was_awake = not self.cfg.panel_sleep_s or now < self._awake_until
         pressed = self._debounced_pressed()
-        action, hold = self.logic.update(now, pressed, recording)
+        if pressed and not self._was_pressed and not was_awake:
+            self._swallow = True  # écran éteint : cet appui sert seulement à le rallumer, il ne lance rien
+        self._was_pressed = pressed
+        if not pressed:
+            self._swallow = False
+        action, hold = self.logic.update(now, pressed and not self._swallow, recording)
         if action:
             self._act(now, action)
         if pressed or action:

@@ -8,8 +8,9 @@ Matériel **facultatif** : une seule image pour tous les boîtiers. Au démarrag
 | Pièce | Remarque |
 |---|---|
 | Écran OLED 128×64 I²C, 4 broches (GND, VCC, SDA, SCL) | SSD1306 ou SSD1309 (2,42" en général) ou SH1106 (1,3" en général) ; alimentation **3,3 V** |
-| Bouton poussoir (contact fermé = appuyé) | entre la broche GPIO et la masse |
-| 2 LED (rouge, verte) + 2 résistances de 330 Ω | facultatives |
+| Bouton poussoir **momentané** (contact fermé = appuyé), de préférence 16 mm à **anneau lumineux rouge** (3 à 6 V ou 5 à 12 V selon le modèle) | contact entre la broche GPIO et la masse |
+| Transistor NPN (BC337 ou 2N2222) + résistance de 1 kΩ | pour allumer l'anneau : il consomme ~20 mA, trop pour une broche GPIO |
+| LED verte « prêt » + résistance de 330 Ω | **facultative**, désactivée par défaut : l'écran indique l'état |
 
 ## Câblage (numéros de broches physiques du connecteur 40 broches ; GPIO = numérotation BCM)
 
@@ -20,10 +21,11 @@ Matériel **facultatif** : une seule image pour tous les boîtiers. Au démarrag
 | Écran SDA | 3 | GPIO2 |
 | Écran SCL | 5 | GPIO3 |
 | Bouton (l'autre côté à la masse, broche 9) | 11 | GPIO17 |
-| LED rouge « enregistrement » (anode → résistance → broche, cathode à la masse, broche 14) | 13 | GPIO27 |
-| LED verte « prêt » (anode → résistance → broche, cathode à la masse, broche 20) | 15 | GPIO22 |
+| Anneau rouge « enregistrement » : GPIO27 → résistance 1 kΩ → base du transistor ; émetteur à la masse (broche 14) ; collecteur → cathode (−) de l'anneau ; anode (+) de l'anneau → 5 V (broche 2) si l'anneau accepte 5 V (sinon son alimentation propre, masses reliées) | 13 | GPIO27 |
+| LED verte « prêt » (facultative ; réglage `panel_led_ok_gpio` : 22) : anode → résistance 330 Ω → broche, cathode à la masse (broche 20) | 15 | GPIO22 |
 
-Les numéros de GPIO se changent dans `xr18rec.json` (`panel_button_gpio`, `panel_led_rec_gpio`, `panel_led_ok_gpio` ; 0 = non câblé).
+Les numéros de GPIO se changent dans `xr18rec.json` (`panel_button_gpio`, `panel_led_rec_gpio`, `panel_led_ok_gpio` ; 0 = non câblé, valeur par défaut de la LED verte).
+Vérifiez sur la fiche de l'anneau les cosses de la LED (souvent marquées +/−) et sa tension : un anneau 5 V peut rester faible en 3,3 V.
 Les GPIO2 et GPIO3 (bus I²C) ne peuvent pas servir au bouton ni aux LED.
 
 ## Réglages (`xr18rec.json` sur la partition de démarrage)
@@ -41,7 +43,8 @@ Les GPIO2 et GPIO3 (bus I²C) ne peuvent pas servir au bouton ni aux LED.
 - **Appui court au repos** : démarre un enregistrement (nom automatique daté).
 - **Pendant une prise, maintenir 2 s** : arrête (barre de progression à l'écran). Un appui court affiche seulement un rappel : pas d'arrêt accidentel.
 - **Au repos, maintenir 5 s** : éteint le Pi proprement (à faire avant de couper l'alimentation).
-- **LED rouge** : fixe pendant la prise, clignote vite en cas d'alerte. **LED verte** : prêt ; clignote s'il y a une alerte.
+- **Anneau (ou LED) rouge** : fixe pendant la prise, clignote vite en cas d'alerte. **LED verte** (si câblée) : prêt ; clignote s'il y a une alerte.
+- **Veille de l'écran** : au repos seulement, après `panel_sleep_s` (5 min). Il ne s'éteint **jamais** pendant une prise, tant qu'une alerte est présente ni pendant un appui. Il se rallume tout seul au démarrage d'une prise (bouton ou interface web) ou à l'apparition d'une alerte. Pour le rallumer à la main, appuyer sur le bouton : **ce premier appui ne fait que réveiller l'écran** (il ne lance pas de prise).
 - **Écran** : au repos, version, « PRET » (ou « ERREUR »), temps restant, stockage, adresse IP et nom `.local` en alternance. En prise : point rouge clignotant, nom de la session, chronomètre en chiffres sept segments (le plus grand possible), temps restant. Une alerte remplace la ligne d'en-tête (barre inversée en haut, plusieurs alertes défilent).
 
 Aperçu sans matériel : `python3 -m xr18rec panel --preview repos|enregistrement|alerte` (image en texte).

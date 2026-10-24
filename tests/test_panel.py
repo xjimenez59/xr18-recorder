@@ -266,6 +266,28 @@ class PanelLoopTests(unittest.TestCase):
         p.step()
         self.assertTrue(self.display._on)  # et il reste allumé pendant toute la prise
 
+    def test_press_on_a_sleeping_screen_only_wakes_it(self):
+        p = self.make(STATUS_IDLE, sleep_s=60)
+        p.step()
+        self.clock.t += 120
+        p.step()
+        self.assertFalse(self.display._on)
+        self.run_press(p, 0.3)  # appui court sur l'écran éteint
+        self.assertEqual(self.posts, [])  # pas de prise lancée
+        self.assertTrue(self.display._on)
+        self.run_press(p, 0.3)  # écran allumé : cette fois c'est un REC
+        self.assertEqual(self.posts, [("/api/start", {})])
+
+    def test_screen_stays_on_while_recording_and_wakes_on_alert(self):
+        p = self.make(STATUS_IDLE, sleep_s=60)
+        p.step()
+        self.clock.t += 120
+        p.step()
+        self.assertFalse(self.display._on)
+        p.status = {**STATUS_IDLE, "alerts": [{"code": "overruns", "message": "x"}]}
+        p.step()
+        self.assertTrue(self.display._on)  # une alerte rallume l'écran seule
+
     def test_identical_screens_are_not_redrawn(self):
         p = self.make(STATUS_IDLE)
         p.step()

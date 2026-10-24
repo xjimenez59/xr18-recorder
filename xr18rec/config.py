@@ -51,7 +51,7 @@ class Config:
     panel_sleep_s: int = 300  # extinction de l'écran au repos (évite de le marquer) ; 0 = jamais
     panel_button_gpio: int = 17
     panel_led_rec_gpio: int = 27
-    panel_led_ok_gpio: int = 22
+    panel_led_ok_gpio: int = 0  # LED verte « prêt » facultative (0 = non câblée) ; l'anneau rouge du bouton suffit
 
     @property
     def bytes_per_second(self) -> int:

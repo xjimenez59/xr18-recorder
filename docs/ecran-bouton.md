@@ -44,7 +44,9 @@ Les GPIO2 et GPIO3 (bus I²C) ne peuvent pas servir au bouton ni aux LED.
 - **LED rouge** : fixe pendant la prise, clignote vite en cas d'alerte. **LED verte** : prêt ; clignote s'il y a une alerte.
 - **Écran** : au repos, version, « PRET » (ou « ERREUR »), temps restant, stockage, adresse IP et nom `.local` en alternance. En prise : point rouge clignotant, nom de la session, chronomètre, temps restant, espace libre. Une alerte remplace la dernière ligne (barre inversée, plusieurs alertes défilent).
 
-Aperçu sans matériel : `python3 -m xr18rec panel --preview repos|enregistrement|alerte`.
+Aperçu sans matériel : `python3 -m xr18rec panel --preview repos|enregistrement|alerte` (image en texte).
+
+**Simulateur interactif** (poste de développement) : `PORT=8099 sh scripts/dev-ui.sh` lance aussi un simulateur sur `http://localhost:8100` (port de l'enregistreur + 1 ; `SIM_PORT` pour le changer) : l'écran, les deux LED et un bouton cliquable (clic court, ou maintenir la souris 2 s / 5 s). C'est le vrai code de `panel.py` contre le serveur de développement (vrais REC/STOP avec le faux arecord) ; l'extinction est simulée. Lancement à la main : `python3 -m xr18rec panel --simulate --config <fichier>`.
 
 ## Mise en route sur un Pi déjà installé (sans reflasher)
 

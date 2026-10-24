@@ -61,6 +61,9 @@ def cmd_panel(args) -> int:
     config_mod.apply_overlay(cfg)
     if args.preview:
         return panel_preview(args.preview)
+    if args.simulate:
+        from . import panelsim
+        return panelsim.run(cfg, args.sim_port)
     return panel.run(cfg)
 
 
@@ -209,6 +212,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("panel", help="face avant (écran OLED, bouton, LED) ; lancé automatiquement par serve")
     s.add_argument("--config")
     s.add_argument("--preview", metavar="SCENARIO", help="affiche un écran en texte : repos, enregistrement, alerte")
+    s.add_argument("--simulate", action="store_true", help="simulateur dans le navigateur (écran, bouton, LED), sans matériel")
+    s.add_argument("--sim-port", type=int, default=8100, help="port du simulateur (défaut 8100)")
     s.set_defaults(fn=cmd_panel)
     s = sub.add_parser("config", help="affiche la configuration effective")
     s.add_argument("--config")

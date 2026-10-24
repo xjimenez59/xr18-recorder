@@ -20,12 +20,14 @@ cat > "$TMP/config.json" <<EOF
 {"output_dir": "$TMP/rec", "arecord_bin": "$TMP/arecord", "segment_seconds": 10,
  "min_free_gb": 0.1, "host": "0.0.0.0", "port": $PORT,
  "xr18_host": "127.0.0.1", "xr18_osc_port": $OSC_PORT,
- "state_file": "$TMP/state.json", "settings_file": "$TMP/settings.json"}
+ "state_file": "$TMP/state.json", "settings_file": "$TMP/settings.json", "panel": "off"}
 EOF
 export XR18REC_UPDATE_DIR="$TMP/update"            # mises à jour : dossiers de test (sur le Pi, ce sont ceux de /var/lib)
 export XR18REC_UPDATE_STATE="$TMP/update-state"
 export XR18REC_UPDATE_PUBKEY="$ROOT/image/files/update-key.pub"
 cd "$ROOT"
 python3 tests/fake_xr18.py "$OSC_PORT" &  # faux XR18 : noms de voies et page /mix
-trap 'kill $! 2>/dev/null' EXIT INT TERM
+FAKE_XR18_PID=$!
+python3 -m xr18rec panel --simulate --sim-port "${SIM_PORT:-$((PORT + 1))}" --config "$TMP/config.json" &  # face avant simulée
+trap 'kill $FAKE_XR18_PID $! 2>/dev/null' EXIT INT TERM
 python3 -m xr18rec serve --config "$TMP/config.json"

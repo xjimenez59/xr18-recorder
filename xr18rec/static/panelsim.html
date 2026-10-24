@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulateur face avant</title>
+<style>
+  :root { --bg:#14161a; --fg:#e8eaed; --muted:#9aa0a6; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; gap:18px; }
+  .case { background:#2b2f36; border-radius:14px; padding:22px 26px; display:flex; gap:28px; align-items:center; box-shadow:0 6px 24px #0008; }
+  .bezel { background:#000; padding:10px; border-radius:6px; border:2px solid #444; }
+  canvas { display:block; width:512px; height:256px; image-rendering:pixelated; }
+  canvas.off { opacity:.04; }
+  .ctl { display:flex; flex-direction:column; align-items:center; gap:18px; }
+  .led { width:22px; height:22px; border-radius:50%; background:#333; border:2px solid #555; }
+  .led.rec.on { background:#ff3b30; box-shadow:0 0 14px #ff3b30; }
+  .led.ok.on { background:#34c759; box-shadow:0 0 14px #34c759; }
+  .leds { display:flex; gap:16px; }
+  #btn { width:84px; height:84px; border-radius:50%; border:6px solid #777; background:#c8ccd2; cursor:pointer; box-shadow:0 5px 0 #666; user-select:none; touch-action:none; }
+  #btn.down { transform:translateY(4px); box-shadow:0 1px 0 #666; background:#aab0b8; }
+  small { color:var(--muted); text-align:center; max-width:560px; }
+</style>
+</head>
+<body>
+<h1 style="margin:0;font-size:1.2rem">Simulateur de la face avant</h1>
+<div class="case">
+  <div class="bezel"><canvas id="oled" width="128" height="64"></canvas></div>
+  <div class="ctl">
+    <div class="leds"><div class="led rec" id="lr" title="LED rouge"></div><div class="led ok" id="lo" title="LED verte"></div></div>
+    <div id="btn" title="Bouton REC/STOP"></div>
+    <div id="held" style="min-height:1.4em;color:var(--muted)"></div>
+  </div>
+</div>
+<small id="status">…</small>
+<small>Bouton : un clic court = REC (au repos). Maintenir la souris enfoncée 2 s pendant une prise = STOP, 5 s au repos = extinction du Pi (simulée : rien n'est éteint). Même code que sur le Pi ; l'enregistreur de développement (scripts/dev-ui.sh) reçoit de vraies commandes REC/STOP.</small>
+<script>
+const cv = document.getElementById('oled'), g = cv.getContext('2d'), img = g.createImageData(128, 64);
+const btn = document.getElementById('btn');
+function draw(b64) {
+  const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 128; x++) {
+    const on = raw[(y >> 3) * 128 + x] >> (y & 7) & 1, i = (y * 128 + x) * 4;
+    img.data[i] = on ? 235 : 0; img.data[i + 1] = on ? 245 : 6; img.data[i + 2] = on ? 255 : 14; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+}
+async function poll() {
+  try {
+    const f = await (await fetch('/frame')).json();
+    draw(f.frame);
+    cv.classList.toggle('off', !f.on);
+    document.getElementById('lr').classList.toggle('on', f.rec);
+    document.getElementById('lo').classList.toggle('on', f.ok);
+    document.getElementById('status').textContent = f.api ? (f.on ? '' : 'Écran en veille (réveil : bouton, prise ou alerte)') : "L'enregistreur ne répond pas (serveur arrêté ?)";
+  } catch (e) { document.getElementById('status').textContent = 'Simulateur arrêté'; }
+}
+setInterval(poll, 200); poll();
+let t0 = 0, timer = null;
+const send = pressed => fetch('/button', {method: 'POST', body: JSON.stringify({pressed})}).catch(() => {});
+function down(e) { e.preventDefault(); btn.classList.add('down'); send(true); t0 = Date.now();
+  timer = setInterval(() => document.getElementById('held').textContent = ((Date.now() - t0) / 1000).toFixed(1) + ' s', 100); }
+function up() { if (!btn.classList.contains('down')) return; btn.classList.remove('down'); send(false); clearInterval(timer); document.getElementById('held').textContent = ''; }
+btn.addEventListener('pointerdown', down);
+addEventListener('pointerup', up); addEventListener('pointercancel', up);
+</script>
+</body>
+</html>

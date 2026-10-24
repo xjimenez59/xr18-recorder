@@ -23,6 +23,8 @@ import urllib.request
 from . import gpio, oled
 
 STATUS_EVERY_S = 1.0
+DRAW_EVERY_S = 0.25
+POLL_S = 0.02  # lecture du bouton : 20 ms (l'anti-rebond demande deux lectures identiques)
 NOTICE_S = 2.5
 
 SHORT_ALERTS = {
@@ -110,6 +112,18 @@ def _big_clock(c: oled.Canvas, y: int, text: str, scale: int) -> None:
         x += w
 
 
+def frame_key(st: dict | None, now: float, net: tuple[str, str], overlay=None) -> tuple:
+    """Tout ce qui change l'image : deux états de même clé donnent le même dessin (on évite de redessiner pour rien)."""
+    if st is None:
+        return (None,)
+    alerts = st.get("alerts") or []
+    shown = short_alert(alerts[int(now / 3) % len(alerts)], st) if alerts else None
+    fraction = None if not overlay or overlay[1] is None else round(overlay[1], 2)
+    return (st.get("state"), st.get("session"), fmt_clock(st.get("elapsed_s", 0)), fmt_remaining(st.get("remaining_s")),
+            (st.get("storage") or {}).get("kind"), round(st.get("free_gb", 0)), st.get("version"), shown,
+            int(now * 2) % 2, int(now / 4) % 2, overlay[0] if overlay else None, fraction, net)
+
+
 def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], overlay=None) -> None:
     """Dessine l'écran correspondant à l'état (`st` = réponse de /api/status, None si l'application ne répond pas)."""
     c.clear()
@@ -170,6 +184,8 @@ class Panel:
         self._raw = None
         self._stable = False
         self._awake_until = clock() + float(cfg.panel_sleep_s)
+        self._drawn = float("-inf")
+        self._last_key = None
         self._was_active = True
         self.stop_event = threading.Event()
 
@@ -223,10 +239,16 @@ class Panel:
             self._awake_until = now + float(self.cfg.panel_sleep_s)
         awake = not self.cfg.panel_sleep_s or now < self._awake_until
         if self.display:
+            awake_before = self.display._on if hasattr(self.display, "_on") else getattr(self.display, "on", True)
             self.display.power(awake)
-            if awake:
-                render(self.canvas, st, time.time(), self.net, overlay)
-                self.display.show(self.canvas)
+            if awake and (now - self._drawn >= DRAW_EVERY_S or action):  # le dessin coûte cher sur un Pi 2 : 4 fois par seconde au plus
+                self._drawn = now
+                wall = time.time()
+                key = frame_key(st, wall, self.net, overlay)
+                if key != self._last_key or not awake_before:
+                    self._last_key = key
+                    render(self.canvas, st, wall, self.net, overlay)
+                    self.display.show(self.canvas)
         if self.set_leds:
             blink1, blink2 = int(now) % 2 == 0, int(now * 4) % 2 == 0
             if recording:
@@ -250,7 +272,7 @@ class Panel:
                 self.step()
             except OSError as exc:  # bus I²C ou GPIO momentanément en défaut : on réessaie au tour suivant
                 print(f"face avant : {exc}", file=sys.stderr, flush=True)
-            self.stop_event.wait(0.05)
+            self.stop_event.wait(POLL_S)
 
     def _poller(self) -> None:
         while not self.stop_event.is_set():

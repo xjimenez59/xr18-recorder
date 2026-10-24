@@ -258,6 +258,17 @@ class PanelLoopTests(unittest.TestCase):
         p.step()
         self.assertTrue(self.display._on)  # et il reste allumé pendant toute la prise
 
+    def test_identical_screens_are_not_redrawn(self):
+        p = self.make(STATUS_IDLE)
+        p.step()
+        self.link.writes.clear()
+        for _ in range(12):  # 12 tours de 20 ms : même affichage, rien n'est renvoyé à l'écran
+            self.clock.t += 0.02
+            p.step()
+        self.assertEqual(self.link.writes, [])
+        self.assertEqual(panel.frame_key(STATUS_REC, 10.2, ("a", "b")), panel.frame_key(STATUS_REC, 10.3, ("a", "b")))
+        self.assertNotEqual(panel.frame_key(STATUS_REC, 10.2, ("a", "b")), panel.frame_key({**STATUS_REC, "elapsed_s": 3726}, 10.2, ("a", "b")))
+
     def test_works_without_display_or_leds(self):
         p = self.make(STATUS_IDLE, with_display=False)
         p.set_leds = None
@@ -301,3 +312,25 @@ class ConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SimulatorTests(unittest.TestCase):
+    def test_board_prolongs_a_very_short_click(self):
+        from xr18rec import panelsim
+        b = panelsim.Board()
+        b.press(True)
+        b.press(False)  # clic de la souris quasi instantané
+        self.assertTrue(b.pressed)  # le contact reste établi ~120 ms : l'anti-rebond le voit
+        time.sleep(0.25)
+        self.assertFalse(b.pressed)
+
+    def test_power_off_is_never_sent_for_real(self):
+        from xr18rec import panelsim
+        sent = []
+        srv, p = panelsim.make_server(config_mod.Config(), 0, fetch=lambda: STATUS_IDLE, post=lambda path, body: sent.append(path))
+        try:
+            p.post("/api/system/power", {"action": "poweroff"})
+            p.post("/api/start", {})
+            self.assertEqual(sent, ["/api/start"])
+        finally:
+            srv.server_close()

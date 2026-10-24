@@ -8,6 +8,7 @@ de 2 colonnes du SH1106).
 from __future__ import annotations
 
 import fcntl
+import functools
 import os
 import unicodedata
 
@@ -45,6 +46,19 @@ def ascii_text(text: str) -> str:
     return "".join(c if c in FONT else "?" for c in out)
 
 
+@functools.lru_cache(maxsize=None)
+def _scaled_columns(ch: str, scale: int) -> tuple:
+    """Colonnes du caractère agrandi `scale` fois (une valeur entière par colonne, bit 0 = haut), mises en cache."""
+    cols = []
+    for source in FONT[ch]:
+        bits = 0
+        for row in range(7):
+            if source >> row & 1:
+                bits |= ((1 << scale) - 1) << (row * scale)
+        cols.extend([bits] * scale)
+    return tuple(cols)
+
+
 class Canvas:
     def __init__(self):
         self.buf = bytearray(WIDTH * PAGES)
@@ -60,10 +74,29 @@ class Canvas:
             else:
                 self.buf[i] &= ~(1 << (y & 7))
 
+    def _blit_column(self, x: int, y: int, bits: int, height: int, on: bool) -> None:
+        """Une colonne de pixels (bit 0 = ligne du haut) posée en (x, y), page par page."""
+        if not 0 <= x < WIDTH or y >= HEIGHT or y + height <= 0:
+            return
+        if y < 0:
+            bits, height, y = bits >> -y, height + y, 0
+        height = min(height, HEIGHT - y)
+        bits &= (1 << height) - 1
+        buf = self.buf
+        for page in range(y >> 3, ((y + height - 1) >> 3) + 1):
+            mask = (bits << y >> (page * 8)) & 0xFF
+            if mask:
+                if on:
+                    buf[page * WIDTH + x] |= mask
+                else:
+                    buf[page * WIDTH + x] &= ~mask & 0xFF
+
     def rect(self, x: int, y: int, w: int, h: int, on: bool = True) -> None:
-        for yy in range(y, y + h):
-            for xx in range(x, x + w):
-                self.pixel(xx, yy, on)
+        if w <= 0 or h <= 0:
+            return
+        bits = (1 << h) - 1
+        for xx in range(max(0, x), min(WIDTH, x + w)):
+            self._blit_column(xx, y, bits, h, on)
 
     def outline(self, x: int, y: int, w: int, h: int) -> None:
         self.rect(x, y, w, 1); self.rect(x, y + h - 1, w, 1)
@@ -83,11 +116,9 @@ class Canvas:
     def text(self, x: int, y: int, text: str, scale: int = 1, invert: bool = False) -> int:
         """Écrit `text` ; renvoie l'abscisse qui suit. `invert` = pixels éteints sur fond allumé (le fond est à la charge de l'appelant)."""
         for ch in ascii_text(text):
-            cols = FONT[ch]
-            for cx, bits in enumerate(cols):
-                for cy in range(7):
-                    if bits >> cy & 1:
-                        self.rect(x + cx * scale, y + cy * scale, scale, scale, not invert)
+            for i, bits in enumerate(_scaled_columns(ch, scale)):
+                if bits:
+                    self._blit_column(x + i, y, bits, 7 * scale, not invert)
             x += 6 * scale
         return x
 

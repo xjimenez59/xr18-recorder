@@ -235,6 +235,9 @@ class HttpPlaybackTests(unittest.TestCase):
         code, h, body = self.get("/play?s=" + self.name)
         self.assertEqual(code, 200)
         self.assertIn(b"<audio", body)
+        code, h, body = self.get("/multi?s=" + self.name)
+        self.assertEqual(code, 200)
+        self.assertIn(b"AudioContext", body)
 
     def test_blocked_while_recording(self):
         self.rec.start("prise")
@@ -247,6 +250,48 @@ class HttpPlaybackTests(unittest.TestCase):
         finally:
             self.rec.stop()
         self.assertEqual(self.get(self.url(), {"Range": "bytes=0-3"})[0], 206)  # de nouveau disponible
+
+    def pcm(self, ch, start=0, dur=1):
+        return self.get(f"/api/play/{self.name}/pcm?ch={ch}&start={start}&dur={dur}")
+
+    def test_pcm_channels(self):
+        code, h, body = self.pcm("17,18")
+        self.assertEqual((code, int(h["X-Frames"]), int(h["X-Rate"])), (200, self.total, RATE))
+        n = self.total * 2
+        left = b"".join(struct.pack("<h", left_val(i)) for i in range(self.total))
+        right = b"".join(struct.pack("<h", right_val(i)) for i in range(self.total))
+        self.assertEqual((body[:n], body[n:]), (left, right))
+        code, h, body = self.pcm("18", start=0.0125, dur=0.0125)  # 100 trames, à cheval sur la jonction des segments
+        self.assertEqual((code, int(h["X-Frames"])), (200, 100))
+        self.assertEqual(body, b"".join(struct.pack("<h", right_val(i)) for i in range(100, 200)))
+
+    def test_pcm_rejects_bad_requests(self):
+        for q in ("", "0", "19", "1,1", "a", "1&dur=0", "1&dur=99", "1&start=-1"):
+            self.assertEqual(self.get(f"/api/play/{self.name}/pcm?ch={q}")[0], 400, q)
+        self.assertEqual(self.get("/api/play/inconnue/pcm?ch=1")[0], 404)
+
+    def test_pcm_blocked_while_recording(self):
+        self.rec.start("prise")
+        time.sleep(0.4)
+        try:
+            self.assertEqual(self.pcm("1")[0], 409)
+        finally:
+            self.rec.stop()
+
+    def test_tracks_silent_flag(self):
+        tracks = json.loads(self.get(f"/api/play/{self.name}")[2])["tracks"]
+        self.assertEqual(len(tracks), 18)
+        self.assertEqual((tracks[0]["index"], tracks[17]["name"]), (1, "Salle R"))
+        self.assertFalse(any(t["silent"] for t in tracks))  # pas de bilan : on ne cache rien
+        json.dump({"skipped_s": 0, "channels": [{"channel": 1, "peak_dbfs": None, "clip_samples": 0, "events": []},
+                                                {"channel": 2, "peak_dbfs": -12.0, "clip_samples": 0, "events": []}]},
+                  open(os.path.join(self.dir, "levels.json"), "w"))
+        tracks = json.loads(self.get(f"/api/play/{self.name}")[2])["tracks"]
+        self.assertEqual([t["silent"] for t in tracks[:3]], [True, False, False])  # la voie 3 n'est pas dans le bilan
+        json.dump({"skipped_s": 4, "channels": [{"channel": 1, "peak_dbfs": None}]},
+                  open(os.path.join(self.dir, "levels.json"), "w"))
+        tracks = json.loads(self.get(f"/api/play/{self.name}")[2])["tracks"]
+        self.assertFalse(tracks[0]["silent"])  # analyse incomplète : peu fiable
 
     def test_client_abort_does_not_break_the_server(self):
         import socket

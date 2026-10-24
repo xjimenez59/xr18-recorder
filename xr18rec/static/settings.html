@@ -90,13 +90,18 @@
   <b>Mise à jour de l'application</b>
   <div class="muted" id="updver" style="margin-top:6px"></div>
   <div class="msg warn" id="updnokey" hidden>Cette image ne contient pas la clé de vérification : les mises à jour sont impossibles, il faut reflasher la carte.</div>
+  <div id="updonline" class="msg muted" style="margin-top:8px"></div>
+  <div class="actions" id="updonlineact" hidden>
+    <button id="updgo"></button>
+    <button class="ghost" id="updrecheck">Revérifier</button>
+  </div>
+  <div id="updnotes" class="muted" style="font-size:.85rem; white-space:pre-wrap" hidden></div>
   <div id="updstaged" class="card" style="margin:10px 0 0; background:transparent; border:1px solid var(--accent)" hidden>
     <b id="updstagedtitle"></b>
     <div class="muted" id="updstagedmeta"></div>
     <div class="actions"><button id="updinstall">Installer maintenant</button></div>
   </div>
   <div class="actions">
-    <button class="ghost" id="updcheck">Rechercher sur Internet</button>
     <button class="ghost" id="updscan">Chercher sur un disque USB</button>
     <button class="ghost" id="updpick">Envoyer un fichier…</button>
     <input type="file" id="updfile" accept=".tar" hidden>
@@ -292,22 +297,67 @@ async function watchInstall() {
     }
   }, 1500);
 }
-function stagedFrom(promise, label) {
-  say('updmsg', label + '…');
-  return promise.then(() => { say('updmsg', 'Paquet vérifié : prêt à installer.', 'ok'); $('updfound').replaceChildren(); return refreshUpdate(); })
-    .catch(e => say('updmsg', e.message, 'warn'));
+let installing = false;
+async function recording() { try { return (await api('/api/status')).state === 'recording'; } catch (e) { return false; } }
+// Installe le paquet déjà déposé : une confirmation, puis le service root prend le relais et l'application redémarre.
+async function installStaged(version) {
+  if (!confirm(`Installer la version ${version} ? L'application redémarre (quelques secondes). Impossible pendant un enregistrement.`)) return false;
+  try { await api('/api/update/install', {}); say('updmsg', 'Installation demandée…', 'ok'); watchInstall(); return true; }
+  catch (e) { say('updmsg', e.message, 'warn'); return false; }
 }
-$('updcheck').onclick = async () => {
-  say('updmsg', 'Recherche sur Internet…'); $('updfound').replaceChildren();
+// Dépose un paquet (USB / envoi), puis propose aussitôt de l'installer.
+async function stageThenInstall(promise, label) {
+  if (installing) return;
+  installing = true; say('updmsg', label + '…'); $('updfound').replaceChildren();
   try {
-    const r = await api('/api/update/check', {});
-    if (!r.has_package) return say('updmsg', `Dernière version publiée : ${r.latest || r.tag} (sans paquet de mise à jour : reflashage nécessaire).`, 'warn');
-    if (!r.newer) return say('updmsg', `Vous avez la dernière version (${r.current}).`, 'ok');
-    say('updmsg', `Version ${r.latest} disponible (vous avez ${r.current}).`, 'ok');
-    const b = document.createElement('button'); b.className = 'ghost'; b.textContent = `Télécharger la version ${r.latest}`;
-    b.onclick = () => stagedFrom(api('/api/update/download', {}), 'Téléchargement');
-    $('updfound').append(b);
+    await promise;
+    const u = await refreshUpdate();
+    if (!u || !u.staged) return say('updmsg', 'Ce paquet n’est pas plus récent que la version installée : rien à faire.', 'warn');
+    say('updmsg', `Paquet ${u.staged.version} vérifié.`, 'ok');
+    await installStaged(u.staged.version);
   } catch (e) { say('updmsg', e.message, 'warn'); }
+  finally { installing = false; }
+}
+let onlineLatest = null;
+function showOnline(r, err) {
+  const msg = $('updonline'), act = $('updonlineact'), notes = $('updnotes');
+  act.hidden = false; $('updgo').hidden = true; notes.hidden = true; onlineLatest = null;
+  msg.className = 'msg muted';
+  if (err) { msg.textContent = 'Pas d’accès à Internet (ou GitHub injoignable) : mises à jour par disque USB ou envoi de fichier ci-dessous.'; return; }
+  const when = new Date(r.checked_at * 1000).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'});
+  if (!r.has_package && r.latest && r.latest !== r.current) {
+    msg.className = 'msg warn'; msg.textContent = `La version ${r.latest} est publiée sans paquet de mise à jour : reflashage nécessaire.`;
+  } else if (!r.newer) {
+    msg.className = 'msg ok'; msg.textContent = `✓ À jour (version ${r.current}), vérifié à ${when}.`;
+  } else {
+    onlineLatest = r;
+    msg.className = 'msg ok'; msg.textContent = `Version ${r.latest} disponible (installée : ${r.current}).`;
+    $('updgo').hidden = false; $('updgo').textContent = `Installer ${r.latest}`;
+    if (r.notes) { notes.textContent = r.notes; notes.hidden = false; }
+  }
+}
+async function checkOnline(force) {
+  if (!force && await recording()) { $('updonline').textContent = 'Vérification des mises à jour suspendue pendant l’enregistrement.'; return; }
+  $('updonline').className = 'msg muted'; $('updonline').textContent = 'Recherche de nouvelle version…';
+  try { showOnline(await api('/api/update/check', {force: !!force})); }
+  catch (e) { showOnline(null, e); }
+}
+$('updrecheck').onclick = () => checkOnline(true);
+$('updgo').onclick = async () => {
+  const r = onlineLatest;
+  if (!r || installing) return;
+  if (await recording()) return say('updmsg', 'Un enregistrement est en cours : la mise à jour redémarrerait l’application.', 'warn');
+  if (!confirm(`Installer la version ${r.latest} ? L'application redémarre (quelques secondes).`)) return;
+  installing = true; $('updgo').disabled = true; $('updrecheck').disabled = true;
+  try {
+    say('updmsg', `Téléchargement de la version ${r.latest}…`);
+    await api('/api/update/download', {});
+    say('updmsg', 'Vérification de la signature, puis installation…');
+    await api('/api/update/install', {});
+    say('updmsg', 'Installation en cours… l’application va redémarrer, la page se rechargera toute seule.', 'ok');
+    watchInstall();
+  } catch (e) { say('updmsg', e.message, 'warn'); }
+  finally { installing = false; $('updgo').disabled = false; $('updrecheck').disabled = false; }
 };
 $('updscan').onclick = async () => {
   say('updmsg', 'Recherche sur les disques USB…'); $('updfound').replaceChildren();
@@ -317,9 +367,9 @@ $('updscan').onclick = async () => {
     say('updmsg', `${usb.length} fichier(s) trouvé(s) :`, 'ok');
     for (const f of usb) {
       const b = document.createElement('button'); b.className = 'ghost';
-      b.textContent = f.error ? `✗ ${f.name} (${f.disk}) : ${f.error}` : `${f.name} sur ${f.disk} — préparer`;
+      b.textContent = f.error ? `✗ ${f.name} (${f.disk}) : ${f.error}` : `Installer ${f.version} (${f.name} sur ${f.disk})`;
       b.disabled = !!f.error;
-      b.onclick = () => stagedFrom(api('/api/update/stage', {path: f.path}), 'Lecture du fichier');
+      b.onclick = () => stageThenInstall(api('/api/update/stage', {path: f.path}), 'Lecture du fichier');
       $('updfound').append(b);
     }
   } catch (e) { say('updmsg', e.message, 'warn'); }
@@ -332,12 +382,11 @@ $('updfile').onchange = () => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || r.statusText);
   });
-  stagedFrom(send, `Envoi de ${f.name}`);
+  stageThenInstall(send, `Envoi de ${f.name}`);
 };
 $('updinstall').onclick = async () => {
-  if (!confirm("Installer la mise à jour ? L'application redémarre (quelques secondes). Impossible pendant un enregistrement.")) return;
-  try { await api('/api/update/install', {}); say('updmsg', 'Installation demandée…', 'ok'); watchInstall(); }
-  catch (e) { say('updmsg', e.message, 'warn'); }
+  const u = await refreshUpdate();
+  if (u && u.staged) installStaged(u.staged.version);
 };
 async function refreshHealth() {
   try {
@@ -369,6 +418,7 @@ async function refreshHealth() {
 refreshHealth(); setInterval(refreshHealth, 2000);
 
 refreshUpdate();
+checkOnline(false);
 $('updscan').click();  // un fichier de mise à jour déjà présent sur un disque est proposé d'emblée
 
 load();

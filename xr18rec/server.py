@@ -7,7 +7,7 @@ import mimetypes
 import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import audio, playback, qr, reaper, system, xr18osc
 from .app import App
@@ -89,7 +89,42 @@ def make_handler(rec: Recorder, app: App):
                 "session": session, "duration_s": round(src.duration_s, 1), "rate": src.rate,
                 "channels": src.channels, "mix": [src.left + 1, src.right + 1], "mix_fallback": src.fallback,
                 "mix_names": [names[src.left], names[src.right]], "segments": len(src.segments),
-                "blocked": rec.is_recording(), "url": f"/play/{session}/mix.wav"})
+                "blocked": rec.is_recording(), "url": f"/play/{session}/mix.wav",
+                "tracks": playback.track_infos(directory, src, names, reaper.load_layout(directory))})
+
+        def _play_pcm(self, session: str, query: str):
+            """Voies demandées (mono 16 bits, concaténées) pour une plage de temps : le navigateur les mélange."""
+            if rec.is_recording():
+                return self._json({"error": "écoute indisponible pendant un enregistrement"}, 409)
+            directory = self._session_dir(session)
+            if directory is None:
+                return self._json({"error": "session introuvable"}, 404)
+            try:
+                src = playback.SessionAudio(directory)
+                args = parse_qs(query)
+                chans = [int(c) - 1 for c in args.get("ch", [""])[0].split(",") if c]
+                start, dur = float(args.get("start", ["0"])[0]), float(args.get("dur", ["5"])[0])
+            except playback.PlaybackError as exc:
+                return self._json({"error": str(exc)}, 404)
+            except ValueError:
+                return self._json({"error": "paramètres invalides"}, 400)
+            if (not chans or len(set(chans)) != len(chans) or min(chans) < 0 or max(chans) >= src.channels
+                    or not 0 <= start or not 0 < dur <= playback.MAX_PCM_SECONDS):
+                return self._json({"error": "paramètres invalides"}, 400)
+            frames = int(dur * src.rate)
+            planes = src.channels16(chans, int(start * src.rate), frames)
+            body = b"".join(planes)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Frames", str(len(planes[0]) // 2))
+            self.send_header("X-Rate", str(src.rate))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                self.close_connection = True
 
         def _play_mix(self, session: str):
             """Mix de la console en WAV stéréo 16 bits, avec requêtes à plage d'octets (positionnement dans le temps)."""
@@ -179,8 +214,13 @@ def make_handler(rec: Recorder, app: App):
                 return self._play_mix(m.group(1))
             if path == "/play":
                 return self._file(os.path.join(STATIC_DIR, "play.html"))
+            if path == "/multi":
+                return self._file(os.path.join(STATIC_DIR, "multi.html"))
             if path.startswith("/api/play/"):
-                return self._play_meta(path[len("/api/play/"):])
+                rest = path[len("/api/play/"):]
+                if rest.endswith("/pcm"):
+                    return self._play_pcm(rest[:-len("/pcm")], urlparse(self.path).query)
+                return self._play_meta(rest)
             if path.startswith("/zip/"):
                 return self._zip(path[len("/zip/"):])
             if path == "/favicon.ico":  # pas d'icône : évite un 404 à chaque ouverture
@@ -281,7 +321,7 @@ def make_handler(rec: Recorder, app: App):
             if path == "/api/update/stage":
                 return self._app_call(lambda: app.updates.stage_usb(str(self._body().get("path", ""))))
             if path == "/api/update/check":
-                return self._app_call(app.updates.check_online)
+                return self._app_call(lambda: app.updates.check_online(force=bool(self._body().get("force"))))
             if path == "/api/update/download":
                 return self._app_call(app.updates.stage_online)
             if path == "/api/update/install":

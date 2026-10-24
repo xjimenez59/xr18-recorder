@@ -23,11 +23,14 @@ GITHUB_API = "https://api.github.com"  # remplaçable dans les tests
 STAGED = "incoming.tar"
 NAME_RE = re.compile(r"xr18rec-update-(\d+\.\d+\.\d+)\.tar")
 USER_AGENT = "xr18rec-updater"
+CHECK_TTL_S = 3 * 3600  # une vérification en ligne reste valable 3 h (sauf demande explicite)
+CHECK_TIMEOUT_S = 4
 
 
 class UpdateService:
     def __init__(self, cfg, recorder):
         self.cfg, self.rec = cfg, recorder
+        self._latest: tuple[float, dict] | None = None  # (instant, réponse GitHub)
 
     # ---- fichier déposé -------------------------------------------------------
     def _path(self, name: str) -> str:
@@ -58,12 +61,22 @@ class UpdateService:
         return part, size
 
     def staged(self) -> dict | None:
+        """Paquet déposé (quelle que soit sa version)."""
         try:
             with open(self._path("staged.json"), encoding="utf-8") as f:
                 info = json.load(f)
         except (OSError, ValueError):
             return None
-        return info if os.path.isfile(self._path(STAGED)) else None
+        if not os.path.isfile(self._path(STAGED)):
+            return None
+        return info
+
+    def installable(self) -> dict | None:
+        """Le paquet déposé s'il est plus récent que la version installée (celui qu'on propose à l'écran)."""
+        info = self.staged()
+        if info and updater.parse_version(info.get("version", "")) > (updater.parse_version(updater.current_version()) or (0, 0, 0)):
+            return info
+        return None
 
     # ---- sources ----------------------------------------------------------------
     def stage_stream(self, src, length: int) -> dict:
@@ -97,10 +110,10 @@ class UpdateService:
             part, size = self._receive(src)
         return self._stage_file(part, "disque USB", size)
 
-    def _github_json(self, url: str) -> dict:
+    def _github_json(self, url: str, timeout: float = CHECK_TIMEOUT_S) -> dict:
         req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT})
         try:
-            with urllib.request.urlopen(req, timeout=10) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
@@ -109,8 +122,15 @@ class UpdateService:
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise UpdateError("pas d'accès à Internet depuis le Pi (ou GitHub injoignable)") from exc
 
-    def check_online(self) -> dict:
-        data = self._github_json(f"{GITHUB_API}/repos/{self.cfg.update_repo}/releases/latest")
+    def check_online(self, force: bool = True) -> dict:
+        """Dernière version publiée. Sans `force`, la réponse mémorisée (moins de 3 h) est réutilisée ; seules les
+        réponses réussies sont mémorisées (pas d'Internet = on réessaie)."""
+        now = time.time()
+        if not force and self._latest and now - self._latest[0] < CHECK_TTL_S:
+            data, when = self._latest[1], self._latest[0]
+        else:
+            data, when = self._github_json(f"{GITHUB_API}/repos/{self.cfg.update_repo}/releases/latest"), now
+            self._latest = (now, data)
         tag = str(data.get("tag_name", ""))
         asset = next((a for a in data.get("assets", []) if NAME_RE.fullmatch(str(a.get("name", "")))), None)
         current = updater.current_version()
@@ -118,10 +138,10 @@ class UpdateService:
         newer = bool(version and updater.parse_version(version) > (updater.parse_version(current) or (0, 0, 0)))
         return {"current": current, "latest": version, "tag": tag, "newer": newer and asset is not None,
                 "has_package": asset is not None, "url": asset.get("browser_download_url") if asset else None,
-                "notes": str(data.get("body") or "")[:600]}
+                "notes": str(data.get("body") or "")[:600], "checked_at": int(when)}
 
     def stage_online(self) -> dict:
-        info = self.check_online()
+        info = self.check_online(force=False)
         if not info["has_package"]:
             raise UpdateError("cette version n'a pas de paquet de mise à jour (seulement une image)")
         if not info["newer"]:
@@ -155,7 +175,7 @@ class UpdateService:
         last = updater.read_state()
         if os.path.exists(self._path("ready")) and last["state"] != "running":  # demandée, pas encore prise en charge
             last = {"state": "requested", "message": "installation demandée", "version": "", "time": int(time.time())}
-        return {"current": updater.current_version(), "last": last, "staged": self.staged(),
+        return {"current": updater.current_version(), "last": last, "staged": self.installable(),
                 "repo": self.cfg.update_repo, "can_verify": os.path.isfile(updater.PUBKEY)}
 
 

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Écoute multipiste</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .time { display:flex; justify-content:space-between; font-variant-numeric:tabular-nums; font-size:1.1rem; margin-top:6px; }
+  input[type=range].seek { width:100%; height:44px; accent-color:var(--accent); margin:8px 0 0; }
+  .transport { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; margin-top:12px; }
+  .transport button { padding:14px 0; font-size:1.1rem; }
+  .transport .main { font-size:1.5rem; background:var(--accent); }
+  .big { font-size:1.4rem; overflow-wrap:anywhere; }
+  .presets { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .trk { display:grid; grid-template-columns:8px 1fr auto auto; gap:6px 10px; align-items:center; padding:8px 10px; margin-top:8px;
+         background:var(--card); border-radius:10px; }
+  .trk .bar { grid-row:1 / span 3; align-self:stretch; border-radius:4px; background:var(--muted); }
+  .trk .nm { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .trk .nm small { font-weight:400; color:var(--muted); margin-right:6px; }
+  .trk button.tg { width:44px; height:40px; padding:0; font-weight:700; background:transparent; color:var(--fg); border:1px solid var(--muted); border-radius:8px; }
+  .trk button.tg.m.on { background:#ef4444; border-color:#ef4444; color:#fff; }
+  .trk button.tg.s.on { background:#eab308; border-color:#eab308; color:#000; }
+  .trk input[type=range] { grid-column:2 / span 3; width:100%; accent-color:var(--accent); height:30px; margin:0; }
+  .vu { grid-column:2 / span 3; height:6px; background:rgba(128,128,128,.25); border-radius:3px; overflow:hidden; }
+  .vu i { display:block; height:100%; width:0; background:var(--ok); }
+  .vu i.hot { background:#eab308; } .vu i.clip { background:var(--rec); }
+  .trk.off .nm, .trk.off .vu { opacity:.45; }
+  #silentbox { margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Écoute multipiste</h1>
+  <a class="btn ghost" id="back" href="/rec">‹ Sessions</a>
+</div>
+
+<div class="card">
+  <div class="big" id="name">…</div>
+  <div class="muted" id="meta"></div>
+  <div class="err" id="err"></div>
+  <input type="range" class="seek" id="seek" min="0" max="0" step="1" value="0" disabled aria-label="Position dans la prise">
+  <div class="time"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+  <div class="transport">
+    <button class="ghost" id="b60" aria-label="Reculer d'une minute" disabled>−60 s</button>
+    <button class="ghost" id="b10" aria-label="Reculer de 10 secondes" disabled>−10 s</button>
+    <button class="main" id="play" aria-label="Lecture" disabled>▶</button>
+    <button class="ghost" id="f10" aria-label="Avancer de 10 secondes" disabled>+10 s</button>
+    <button class="ghost" id="f60" aria-label="Avancer d'une minute" disabled>+60 s</button>
+  </div>
+  <div class="muted" style="margin-top:12px" id="note"></div>
+  <div class="presets">
+    <button class="ghost" id="pAll">Toutes les voies</button>
+    <button class="ghost" id="pMix">Mix de la console</button>
+    <button class="ghost" id="pClear">Plus de solo</button>
+  </div>
+</div>
+
+<div id="tracks"></div>
+<div id="silentbox" class="muted"></div>
+
+<script src="/static/app.js"></script>
+<script>
+const session = new URLSearchParams(location.search).get('s') || '';
+const W = 4;            // durée (s) d'une fenêtre demandée au Pi
+const AHEAD = 2;        // fenêtres préchargées devant la lecture
+let meta = null, duration = 0, rate = 48000, tracks = [], showSilent = false;
+let ctx = null, playing = false, base = 0, ctxT0 = 0, pos = 0, gen = 0, dragging = false;
+const store = new Map();      // fenêtre -> Map(voie -> Int16Array)
+const pending = new Map();    // "fenêtre:voie" -> promesse en cours
+const scheduled = new Set();  // "fenêtre:voie" déjà programmées dans Web Audio
+let sources = [];
+
+const clock = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const controls = ['seek', 'b60', 'b10', 'play', 'f10', 'f60'];
+const enable = on => controls.forEach(i => $(i).disabled = !on);
+const position = () => playing ? Math.min(duration, base + Math.max(0, ctx.currentTime - ctxT0)) : pos;
+
+// ---- voies à demander : non muettes (ou seulement les solos s'il y en a)
+function wanted() {
+  const solo = tracks.some(t => t.solo);
+  return tracks.filter(t => solo ? t.solo : !t.muted).map(t => t.index);
+}
+function audible(t) { return tracks.some(x => x.solo) ? t.solo : !t.muted; }
+
+async function fetchWindow(k, chans) {
+  const need = chans.filter(c => !(store.get(k) && store.get(k).has(c)) && !pending.has(k + ':' + c));
+  if (need.length) {
+    const p = fetch(`/api/play/${encodeURIComponent(session)}/pcm?ch=${need.join(',')}&start=${k * W}&dur=${W}`).then(async r => {
+      if (r.status === 409) { blocked(); throw new Error('bloqué'); }
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+      const frames = Number(r.headers.get('X-Frames')), buf = await r.arrayBuffer();
+      const m = store.get(k) || new Map(); store.set(k, m);
+      need.forEach((c, i) => m.set(c, new Int16Array(buf.slice(i * frames * 2, (i + 1) * frames * 2))));
+    });
+    need.forEach(c => pending.set(k + ':' + c, p));
+    p.catch(e => { if (e.message !== 'bloqué') $('err').textContent = 'Chargement impossible : ' + e.message; })
+     .finally(() => need.forEach(c => pending.delete(k + ':' + c)));
+  }
+  await Promise.all(chans.map(c => pending.get(k + ':' + c)).filter(Boolean));
+}
+
+function schedule(k) {
+  if (!playing) return;
+  const data = store.get(k);
+  if (!data) return;
+  for (const [c, pcm] of data) {
+    const key = k + ':' + c;
+    if (scheduled.has(key)) continue;
+    scheduled.add(key);
+    let at = ctxT0 + (k * W - base), off = 0;
+    const now = ctx.currentTime;
+    if (at < now + 0.02) { off = now + 0.02 - at; at = now + 0.02; }  // données arrivées en retard : on rattrape le temps perdu
+    if (off >= pcm.length / rate) continue;
+    const buf = ctx.createBuffer(1, pcm.length, rate), f = buf.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.connect(tracks[c - 1].node);
+    src.start(at, off);
+    sources.push(src);
+    src.onended = () => { sources = sources.filter(s => s !== src); };
+  }
+}
+
+// appelé en boucle pendant la lecture : précharge les fenêtres à venir pour les voies audibles
+function pump() {
+  if (!playing) return;
+  const p = position();
+  if (p >= duration) return stop(true);
+  const k0 = Math.floor(p / W), chans = wanted();
+  for (const k of [...store.keys()]) if (k < k0) { store.delete(k); chans.forEach(c => scheduled.delete(k + ':' + c)); }
+  for (let k = k0; k <= k0 + AHEAD && k * W < duration; k++) {
+    const myGen = gen;
+    fetchWindow(k, chans).then(() => { if (myGen === gen) schedule(k); }).catch(() => {});
+  }
+}
+
+function stopSources() { sources.forEach(s => { s.onended = null; try { s.stop(); } catch (e) {} }); sources = []; scheduled.clear(); }
+
+function ensureContext() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  tracks.forEach(t => {
+    t.node = ctx.createGain();
+    t.gain = ctx.createGain();
+    t.an = ctx.createAnalyser(); t.an.fftSize = 1024;
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (pan) pan.pan.value = t.pan;
+    t.node.connect(t.an); t.an.connect(t.gain);
+    if (pan) { t.gain.connect(pan); pan.connect(ctx.destination); } else t.gain.connect(ctx.destination);
+    applyGain(t);
+  });
+}
+function applyGain(t) { if (t.gain) t.gain.gain.value = audible(t) ? t.vol : 0; }
+function applyAll() { tracks.forEach(t => { applyGain(t); draw(t); }); if (playing) pump(); }
+
+async function start(t) {
+  ensureContext();
+  await ctx.resume();
+  const myGen = ++gen;
+  stopSources(); playing = false; pos = t;
+  $('note').textContent = 'Chargement…';
+  try { await fetchWindow(Math.floor(t / W), wanted()); } catch (e) { return; }
+  if (myGen !== gen) return;
+  base = t; ctxT0 = ctx.currentTime + 0.05; playing = true;
+  $('note').textContent = '';
+  pump(); schedule(Math.floor(t / W));
+  tick();
+}
+function stop(atEnd) {
+  pos = atEnd ? 0 : position(); gen++; playing = false; stopSources();
+  if (atEnd) { pos = 0; seek.value = 0; }
+  show();
+}
+function jump(d) {
+  const t = Math.min(Math.max(0, position() + d), Math.max(0, duration - 0.1));
+  if (playing) start(t); else { pos = t; show(); }
+}
+
+// ---- affichage
+const seek = $('seek');
+function show() {
+  const p = position();
+  if (!dragging) seek.value = p;
+  $('pos').textContent = clock(dragging ? seek.value : p);
+  $('play').textContent = playing ? '⏸' : '▶';
+}
+const buf1 = new Float32Array(1024);
+function level(t) {
+  if (!playing || !t.an || !audible(t)) return 0;
+  t.an.getFloatTimeDomainData(buf1);
+  let m = 0; for (let i = 0; i < buf1.length; i++) { const a = Math.abs(buf1[i]); if (a > m) m = a; }
+  return m * t.vol;
+}
+function draw(t) {
+  const m = level(t), db = m > 0 ? 20 * Math.log10(m) : -90;
+  t.vu.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
+  t.vu.className = db > -1 ? 'clip' : db > -9 ? 'hot' : '';
+}
+function tick() {
+  show();
+  tracks.forEach(draw);
+  if (playing) { pump(); requestAnimationFrame(tick); }
+  else tracks.forEach(t => { t.vu.style.width = 0; });
+}
+setInterval(() => { if (playing) pump(); }, 500);
+
+function buildTracks() {
+  const box = $('tracks'); box.replaceChildren();
+  let hiddenCount = 0;
+  tracks.forEach(t => {
+    const row = document.createElement('div'); row.className = 'trk';
+    const hide = t.silent && !showSilent;
+    if (t.silent) hiddenCount++;
+    row.hidden = hide; row.style.display = hide ? 'none' : '';
+    const bar = document.createElement('div'); bar.className = 'bar'; if (t.color) bar.style.background = t.color;
+    const nm = document.createElement('div'); nm.className = 'nm';
+    const num = document.createElement('small'); num.textContent = t.index; nm.append(num, t.name);
+    const mute = document.createElement('button'); mute.className = 'tg m'; mute.textContent = 'M'; mute.setAttribute('aria-label', 'Muet ' + t.name);
+    const solo = document.createElement('button'); solo.className = 'tg s'; solo.textContent = 'S'; solo.setAttribute('aria-label', 'Solo ' + t.name);
+    const vol = document.createElement('input'); vol.type = 'range'; vol.min = 0; vol.max = 150; vol.value = 100; vol.setAttribute('aria-label', 'Volume ' + t.name);
+    const vu = document.createElement('div'); vu.className = 'vu'; const bar2 = document.createElement('i'); vu.append(bar2);
+    row.append(bar, nm, mute, solo, vol, vu);
+    box.append(row);
+    t.vu = bar2;
+    t.refresh = () => { mute.classList.toggle('on', t.muted); solo.classList.toggle('on', t.solo); row.classList.toggle('off', !audible(t)); };
+    mute.onclick = () => { t.muted = !t.muted; applyAll(); tracks.forEach(x => x.refresh()); };
+    solo.onclick = () => { t.solo = !t.solo; applyAll(); tracks.forEach(x => x.refresh()); };
+    vol.oninput = () => { t.vol = vol.value / 100; applyGain(t); };
+    t.refresh();
+  });
+  const sb = $('silentbox');
+  sb.replaceChildren();
+  if (hiddenCount) {
+    const b = document.createElement('button'); b.className = 'ghost';
+    b.textContent = showSilent ? 'Masquer les voies sans signal' : `${hiddenCount} voie(s) sans aucun signal pendant la prise : afficher`;
+    b.onclick = () => { showSilent = !showSilent; buildTracks(); };
+    sb.append(b);
+  }
+}
+
+function applyPreset(fn) { tracks.forEach(fn); tracks.forEach(x => x.refresh()); applyAll(); }
+$('pAll').onclick = () => applyPreset(t => { t.solo = false; t.muted = t.silent || t.index > 16 && tracks.length > 16; });
+$('pMix').onclick = () => applyPreset(t => { t.solo = false; t.muted = t.index <= 16 && tracks.length > 16; });
+$('pClear').onclick = () => applyPreset(t => { t.solo = false; });
+
+function blocked() {
+  stop(false); enable(false);
+  $('err').textContent = "Écoute indisponible pendant un enregistrement : elle ralentirait le Pi et risquerait de faire perdre de l'audio.";
+}
+
+async function init() {
+  $('name').textContent = session || 'Aucune session';
+  $('back').href = '/play?s=' + encodeURIComponent(session);
+  $('back').textContent = '‹ Écoute simple';
+  try { meta = await api('/api/play/' + encodeURIComponent(session)); }
+  catch (e) { $('err').textContent = e.message; return; }
+  duration = meta.duration_s; rate = meta.rate;
+  $('dur').textContent = clock(duration); seek.max = duration;
+  const n = meta.tracks.length, silent = meta.tracks.filter(t => t.silent).length;
+  $('meta').textContent = `${clock(duration)} · ${rate} Hz · ${n} voies` + (silent ? ` (${silent} sans signal)` : '');
+  tracks = meta.tracks.map(t => ({...t, muted: t.silent || (n > 16 && t.index > 16), solo: false, vol: 1,
+                                  pan: n > 16 && t.index === 17 ? -1 : n > 16 && t.index === 18 ? 1 : 0}));
+  buildTracks();
+  if (meta.blocked) return blocked();
+  enable(true);
+}
+
+$('play').onclick = () => { if (playing) stop(false); else start(Number(seek.value) || pos); };
+$('b60').onclick = () => jump(-60); $('b10').onclick = () => jump(-10);
+$('f10').onclick = () => jump(10); $('f60').onclick = () => jump(60);
+seek.oninput = () => { dragging = true; show(); };
+seek.onchange = () => { dragging = false; const t = Number(seek.value); if (playing) start(t); else { pos = t; show(); } };
+
+setInterval(async () => {
+  try { const s = await api('/api/status'); if (s.state === 'recording' && (playing || !$('play').disabled)) blocked(); } catch (e) { /* hors ligne */ }
+}, 2000);
+init();
+</script>
+</body>
+</html>

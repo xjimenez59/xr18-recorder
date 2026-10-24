@@ -171,6 +171,29 @@ class UpdatesTests(unittest.TestCase):
             self.svc.stage_online()
         self.assertIn("déjà à jour", str(cm.exception))
 
+    def test_online_check_is_cached_unless_forced(self):
+        hits = []
+        make = self.release("v0.3.0")
+        srv = self.serve_github(lambda port: (hits.append(1), make(port))[1], {})
+        first = self.svc.check_online(force=False)
+        self.assertEqual((first["latest"], len(hits)), ("0.3.0", 1))
+        second = self.svc.check_online(force=False)
+        self.assertEqual((len(hits), second["checked_at"]), (1, first["checked_at"]))  # réponse mémorisée
+        self.svc.check_online(force=True)
+        self.assertEqual(len(hits), 2)
+        srv.shutdown()
+        updates.GITHUB_API = "http://127.0.0.1:9"
+        self.assertEqual(self.svc.check_online(force=False)["latest"], "0.3.0")  # hors ligne : la mémoire sert encore 3 h
+        with self.assertRaises(UpdateError):
+            self.svc.check_online(force=True)
+
+    def test_only_a_newer_staged_package_is_offered(self):
+        self.stage("0.1.0")  # déjà la version installée
+        self.assertEqual(self.svc.staged()["version"], "0.1.0")
+        self.assertIsNone(self.svc.status()["staged"])
+        self.stage("0.3.0")
+        self.assertEqual(self.svc.status()["staged"]["version"], "0.3.0")
+
     def test_online_release_without_package(self):
         self.serve_github(self.release("v0.3.0", with_asset=False), {})
         info = self.svc.check_online()

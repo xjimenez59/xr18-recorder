@@ -10,10 +10,10 @@ Enregistrer une répétition ou un concert : les 16 entrées indépendantes de l
 ## Faits techniques retenus
 - XR18 : USB 2.0 type B, interface audio **18×18** conforme à la classe USB audio (reconnue par ALSA/Linux sans pilote) **(à vérifier sur le Pi)**.
 - Débit à 48 kHz : 18 voies × 3 octets (S24_3LE) ≈ 2,6 Mo/s ≈ 9,3 Go/h ; en S32_LE ≈ 3,5 Mo/s ≈ 12,4 Go/h. Format réellement exposé par l'XR18 : **(à vérifier)** avec `scripts/probe-xr18.sh`.
-- Limite d'un WAV classique : 4 Gio ≈ 27 min à 18 voies S24_3LE. D'où la **segmentation** (`arecord --max-file-time`, 900 s par défaut ; `config.validate()` refuse un segment trop long). Nommage observé : `take.wav` puis `take-01.wav`, `take-02.wav`… (**à vérifier** : le premier fichier est renommé `-01` à la rotation).
+- Limite d'un WAV classique : 4 Gio ≈ 27 min à 18 voies S24_3LE. D'où la **segmentation** (`arecord --max-file-time`, 900 s par défaut ; `config.validate()` refuse un segment trop long). Nommage **confirmé sur le Pi** : `take-01.wav`, `take-02.wav`… (le premier fichier est renommé `-01` à la rotation, `take.wav` seul si une seule prise courte). `arecord` coupe en réalité à **2 Gio** (≈ 13,8 min à 18 voies S24_3LE), avant les 900 s configurés.
 - `arecord` finalise l'en-tête WAV sur SIGINT ; un arrêt brutal (coupure) laisse un en-tête non finalisé (`wavtools.read_info` le tolère).
 - Disque : XFS ou ext4 (le projet X32-Recorder sur Pi 4 recommande XFS). SSD ou disque auto-alimenté ; le port USB du Pi 2 B ne fournit pas assez de courant pour un disque 2,5" à plateaux (`max_usb_current=1` aide mais ne suffit pas toujours).
-- **Point faible du Pi 2 B** : USB 2.0 partagé avec l'Ethernet (LAN9514) : disque + 18 voies + réseau sur le même bus. Prévoir un test de 1 h avec comptage des « overrun » (`scripts/soak-test.sh`). Si insuffisant : Pi 4/5 ou enregistrer sur un seul disque réseau n'est PAS une solution (même bus).
+- **Point faible du Pi 2 B** : USB 2.0 partagé avec l'Ethernet (LAN9514) : disque + 18 voies + réseau sur le même bus. **Essai d'1 h réussi le 24/10/2026** (18 voies, 48 kHz, S24_3LE, disque USB, Ethernet actif, interface interrogée toutes les 30 s) : **0 overrun**, CPU ~18 % (pointes 50 %), charge max 1,26, 46 °C max, aucune sous-tension, 9,4 Go ; détail dans `docs/plan-de-tests.md`. Non essayé : plus d'1 h, lecture/téléchargement en parallèle (refusés pendant la prise), face avant branchée. Si insuffisant : Pi 4/5 ou enregistrer sur un seul disque réseau n'est PAS une solution (même bus).
 - Le Pi 2 B n'a pas de WiFi : il se branche en Ethernet sur le routeur de scène (Opal), comme dans `stage-lights`.
 
 ## Contenu du dépôt
@@ -23,7 +23,7 @@ Enregistrer une répétition ou un concert : les 16 entrées indépendantes de l
 - `config/xr18rec.json` : exemple de configuration. `docs/` : architecture, disque/formats, plan de tests.
 
 ## API
-`GET /api/status`, `GET /api/sessions`, `POST /api/start {"name": "..."}`, `POST /api/stop`, `GET /files/<session>/<fichier>`, `GET /zip/<session>` (session complète en ZIP64 non compressé, écrit en flux avec `Content-Length` exact ; refusé pendant un enregistrement ; `ziputil.py`). Aucune authentification : réseau de scène privé uniquement.
+`GET /api/status`, `GET /api/sessions`, `POST /api/start {"name": "..."}`, `POST /api/stop`, `GET /files/<session>/<fichier>`, `GET /zip/<session>` (session complète en ZIP64 non compressé, écrit en flux avec `Content-Length` exact ; refusé pendant un enregistrement ; `ziputil.py`), `POST /api/sessions/delete {name, confirm}` (suppression définitive d'une session ; `confirm` doit répéter le nom ; refusée pendant une prise ou un contrôle des niveaux ; interface : 🗑 dans /rec, puis bouton à **maintenir 2 s**). Aucune authentification : réseau de scène privé uniquement.
 
 ## Choix du stockage
 Temps d'enregistrement restant : `Recorder._remaining_s` = (espace libre - min_free_gb/2) / débit de la configuration, dans `status()` et dans chaque option de stockage ; affiché à côté de l'espace libre (orange sous 30 min).
@@ -64,8 +64,8 @@ Au démarrage, si `xr18_host` est défini, les noms/couleurs sont lus en OSC et 
 ## Points non validés
 0. Reaper : numérotation `CHANMODE` (mono voie N = N+2, stéréo N/N+1 = 66+N) et routage USB par défaut de l'XR18 (voies 17/18 = main L/R) à valider sur matériel/Reaper ; `/lr/config/name|color` en OSC à valider.
 1. Nom de la carte ALSA et formats/débits annoncés par l'XR18 (`arecord -l`, `--dump-hw-params`).
-2. Tenue du Pi 2 B (0 overrun sur 1 h, avec disque et réseau actifs).
-3. Nommage réel des fichiers segmentés par la version d'`arecord` installée.
+2. ~~Tenue du Pi 2 B~~ : validée sur 1 h (0 overrun) ; durées plus longues et face avant branchée à essayer.
+3. ~~Nommage des fichiers segmentés~~ : confirmé (`take-01.wav`…, coupure à 2 Gio).
 4. Disque : alimentation, système de fichiers, montage automatique (`nofail`).
 5. Absence de trou (échantillons perdus) à la jonction de deux segments : à vérifier en comparant à une capture continue ; sinon passer à une capture continue avec `sox`/`ffmpeg` ou JACK.
 

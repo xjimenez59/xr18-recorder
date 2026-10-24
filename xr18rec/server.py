@@ -350,6 +350,9 @@ def make_handler(rec: Recorder, app: App):
                 if path == "/api/start":
                     name = self._body().get("name")
                     return self._json({"session": rec.start(name), "status": rec.status()})
+                if path == "/api/sessions/delete":
+                    body = self._body()
+                    return self._json(rec.delete_session(str(body.get("name", "")), str(body.get("confirm", ""))))
                 if path == "/api/storage":
                     return self._json(rec.set_storage(str(self._body().get("path", ""))))
                 if path == "/api/stop":

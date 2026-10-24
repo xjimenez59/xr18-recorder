@@ -57,9 +57,50 @@ function applyZipState() {
     a.classList.toggle('disabled', isRecording);
     a.title = isRecording ? 'Indisponible pendant un enregistrement (ralentirait le Pi)' : '';
   });
+  document.querySelectorAll('button.del').forEach(b => { b.disabled = isRecording; });
+  if (isRecording) { askingDelete = false; document.querySelectorAll('.delbox').forEach(b => b.remove()); }
+}
+
+// Suppression : 🗑 ouvre un cadre de confirmation ; il faut ensuite MAINTENIR le bouton rouge 2 s (pas de clic accidentel).
+// Le serveur exige en plus le nom de la session et refuse pendant une prise.
+const HOLD_MS = 2000;
+let askingDelete = false;  // suspend le rafraîchissement de la liste pendant la confirmation
+function askDelete(wrap, s, total) {
+  if (isRecording) return;
+  wrap.querySelector('.delbox')?.remove();
+  const box = document.createElement('div'); box.className = 'delbox';
+  const msg = document.createElement('div');
+  msg.textContent = `Supprimer définitivement « ${s.name} » (${gio(total)}, ${s.files.length} fichiers) ? Cette action est irréversible.`;
+  const err = document.createElement('div'); err.className = 'err';
+  const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+  const cancel = document.createElement('button'); cancel.className = 'ghost'; cancel.textContent = 'Annuler';
+  const go = document.createElement('button'); go.className = 'stop holdbtn';
+  const fill = document.createElement('span'); fill.className = 'fill';
+  const label = document.createElement('span'); label.className = 'lbl'; label.textContent = 'Maintenir 2 s pour supprimer';
+  go.append(fill, label);
+  let timer = null;
+  const release = () => { clearTimeout(timer); timer = null; go.classList.remove('holding'); };
+  go.addEventListener('pointerdown', e => {
+    if (timer || isRecording) return;
+    e.preventDefault(); go.classList.add('holding');
+    timer = setTimeout(async () => {
+      release(); go.disabled = cancel.disabled = true; label.textContent = 'Suppression…';
+      try {
+        await api('/api/sessions/delete', {name: s.name, confirm: s.name});
+        askingDelete = false; loadSessions(); loadStorage();
+      } catch (ex) { err.textContent = ex.message; go.disabled = cancel.disabled = false; label.textContent = 'Maintenir 2 s pour supprimer'; }
+    }, HOLD_MS);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) go.addEventListener(ev, release);
+  go.addEventListener('contextmenu', e => e.preventDefault());
+  go.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); });  // pas de clavier : geste volontaire
+  cancel.onclick = () => { askingDelete = false; box.remove(); };
+  row.append(cancel, go); box.append(msg, row, err); wrap.append(box);
+  askingDelete = true;
 }
 
 async function loadSessions() {
+  if (askingDelete) return;
   try {
     const list = await api('/api/sessions');
     const box = $('sessions'); box.replaceChildren();
@@ -75,11 +116,14 @@ async function loadSessions() {
       title.append(nm, meta);
       const zip = document.createElement('a'); zip.className = 'btn ghost zip';
       zip.href = `/zip/${encodeURIComponent(s.name)}`; zip.textContent = '⬇ Zip'; zip.download = `${s.name}.zip`;
+      const del = document.createElement('button'); del.className = 'ghost del';
+      del.textContent = '🗑'; del.title = 'Supprimer la session'; del.setAttribute('aria-label', 'Supprimer la session');
+      del.onclick = () => askDelete(wrap, s, total);
       if (s.files.some(f => /^take.*\.wav$/i.test(f.name))) {
         const play = document.createElement('a'); play.className = 'btn ghost play';
         play.href = `/play?s=${encodeURIComponent(s.name)}`; play.textContent = '▶ Écouter';
-        head.append(title, play, zip);
-      } else head.append(title, zip);
+        head.append(title, play, zip, del);
+      } else head.append(title, zip, del);
       const d = document.createElement('details');
       const sum = document.createElement('summary'); sum.textContent = 'Fichiers'; sum.className = 'muted'; d.append(sum);
       const ul = document.createElement('ul');

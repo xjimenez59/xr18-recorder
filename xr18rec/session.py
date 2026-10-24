@@ -460,6 +460,28 @@ class Recorder:
                 return path
         return None
 
+    def delete_session(self, session: str, confirm: str) -> dict:
+        """Supprime définitivement une session (dossier et fichiers). Refusé pendant une prise ; `confirm` doit répéter le nom."""
+        if not session or session in (".", "..") or "/" in session or "\\" in session or "\0" in session:
+            raise RecorderError("nom de session invalide")
+        if confirm != session:
+            raise RecorderError("confirmation absente ou différente du nom de la session")
+        with self._lock:
+            if self.is_recording() or self._monitor is not None and self._monitor.alive():
+                raise RecorderError("impossible pendant un enregistrement ou un contrôle des niveaux")
+            path = self.resolve_session(session)
+            if path is None or os.path.islink(path):
+                raise RecorderError("session introuvable")
+            size = sum(f["bytes"] for f in self._list_files(path))
+            try:
+                shutil.rmtree(path)
+            except OSError as exc:
+                raise RecorderError(f"suppression impossible : {exc}") from exc
+            if self._session_dir == path:
+                self._session_dir = None
+                self._levels = None  # bilan de la prise supprimée
+            return {"deleted": session, "freed_bytes": size}
+
     # ---- stockage ---------------------------------------------------------
     def volumes(self) -> list[storage.Volume]:
         return storage.list_volumes(self.cfg.output_dir, self.cfg.usb_auto)

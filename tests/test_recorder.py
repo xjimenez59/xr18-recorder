@@ -248,6 +248,32 @@ class RecorderTests(unittest.TestCase):
             with self.assertRaises(RecorderError):
                 rec.stop()
 
+    def test_delete_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = Recorder(make_cfg(tmp))
+            name = rec.start("sup")
+            with self.assertRaises(RecorderError):  # refusé pendant la prise
+                rec.delete_session(name, name)
+            time.sleep(0.5)
+            rec.stop()
+            d = os.path.join(rec.cfg.output_dir, name)
+            for bad in ("", ".", "..", "../x", "a/b", "a\\b"):
+                with self.assertRaises(RecorderError):
+                    rec.delete_session(bad, bad)
+            with self.assertRaises(RecorderError):  # confirmation absente ou différente
+                rec.delete_session(name, "")
+            with self.assertRaises(RecorderError):
+                rec.delete_session(name, name + "x")
+            self.assertTrue(os.path.isdir(d))
+            with self.assertRaises(RecorderError):  # inconnue
+                rec.delete_session("nope", "nope")
+            out = rec.delete_session(name, name)
+            self.assertEqual(out["deleted"], name)
+            self.assertGreater(out["freed_bytes"], 0)
+            self.assertFalse(os.path.exists(d))
+            self.assertTrue(os.path.isdir(rec.cfg.output_dir))
+            self.assertEqual(rec.sessions(), [])
+
     def test_overruns_counted(self):
         os.environ["FAKE_ARECORD_OVERRUN"] = "1"
         try:
@@ -338,6 +364,9 @@ class ServerTests(unittest.TestCase):
                 self.assertTrue(body.startswith(b"RIFF"))
                 self.assertEqual(call(f"/files/{session}/..%2F..%2Fetc")[0], 400)
                 self.assertEqual(call("/files/../../etc/passwd")[0], 400)
+                self.assertEqual(call("/api/sessions/delete", {"name": session})[0], 409)  # sans confirmation
+                self.assertEqual(call("/api/sessions/delete", {"name": session, "confirm": session})[0], 200)
+                self.assertEqual(json.loads(call("/api/sessions")[1]), [])
                 self.assertEqual(call("/nope")[0], 404)
             finally:
                 rec.shutdown()

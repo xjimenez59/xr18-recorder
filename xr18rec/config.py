@@ -41,6 +41,17 @@ class Config:
     # Mix de retour (page /mix) : bus Aux proposés (1..6) et plafond des départs, par sécurité (in-ear).
     mix_buses: list = field(default_factory=lambda: [1, 2, 3, 4, 5, 6])
     mix_max_db: float = 0.0
+    # Face avant facultative (écran OLED I²C, bouton, LED) : « auto » = active seulement si un écran répond ; « off » = jamais ;
+    # « on » = aussi sans écran (bouton et LED seuls). Numéros de broches GPIO au sens BCM ; 0 = non câblé.
+    panel: str = "auto"
+    panel_driver: str = "ssd1306"  # ou sh1106 (la plupart des 1,3")
+    panel_i2c_bus: int = 1
+    panel_i2c_address: int = 0  # 0 = essayer 0x3C puis 0x3D
+    panel_rotate: bool = False  # écran monté à l'envers
+    panel_sleep_s: int = 300  # extinction de l'écran au repos (évite de le marquer) ; 0 = jamais
+    panel_button_gpio: int = 17
+    panel_led_rec_gpio: int = 27
+    panel_led_ok_gpio: int = 22
 
     @property
     def bytes_per_second(self) -> int:
@@ -76,6 +87,22 @@ class Config:
             raise ValueError("mix_buses : entiers de 1 à 6")
         if not -90 <= self.mix_max_db <= 10:
             raise ValueError("mix_max_db hors de -90..10")
+        if self.panel not in ("auto", "on", "off"):
+            raise ValueError("panel : auto, on ou off")
+        if self.panel_driver not in ("ssd1306", "sh1106"):
+            raise ValueError("panel_driver : ssd1306 ou sh1106")
+        if not (isinstance(self.panel_i2c_bus, int) and 0 <= self.panel_i2c_bus <= 9):
+            raise ValueError("panel_i2c_bus hors de 0..9")
+        if not (isinstance(self.panel_i2c_address, int) and (self.panel_i2c_address == 0 or 0x08 <= self.panel_i2c_address <= 0x77)):
+            raise ValueError("panel_i2c_address : 0 (automatique) ou une adresse I2C valide")
+        if not (isinstance(self.panel_sleep_s, int) and 0 <= self.panel_sleep_s <= 86400):
+            raise ValueError("panel_sleep_s hors de 0..86400")
+        pins = [self.panel_button_gpio, self.panel_led_rec_gpio, self.panel_led_ok_gpio]
+        if not all(isinstance(p, int) and (p == 0 or 4 <= p <= 27) for p in pins):
+            raise ValueError("broches GPIO : 0 (non câblé) ou 4..27 (le bus I2C occupe GPIO2 et GPIO3)")
+        used = [p for p in pins if p]
+        if len(set(used)) != len(used):
+            raise ValueError("deux fonctions de la face avant sur la même broche GPIO")
 
 
 def load(path: str | None = None) -> Config:

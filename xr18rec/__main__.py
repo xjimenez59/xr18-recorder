@@ -38,16 +38,50 @@ def cmd_serve(args) -> int:
     app.restart = request_restart
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
     print(f"xr18rec : http://{cfg.host}:{srv.server_address[1]}  sortie {cfg.output_dir}", flush=True)
+    stop_panel = threading.Event()
+    if cfg.panel != "off":
+        from . import panel
+        panel.supervise(args.config, stop_panel)  # écran/bouton/LED en processus séparé, seulement s'ils sont présents
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stop_panel.set()
         if app.mixer:
             app.mixer.close()
         rec.shutdown()  # finalise proprement les WAV en cours
         srv.server_close()
     return 3 if restart["asked"] else 0
+
+
+def cmd_panel(args) -> int:
+    from . import panel
+    cfg = config_mod.load(args.config)
+    config_mod.apply_overlay(cfg)
+    if args.preview:
+        return panel_preview(args.preview)
+    return panel.run(cfg)
+
+
+def panel_preview(scenario: str) -> int:
+    """Affiche en texte l'écran d'un scénario (repos, enregistrement, alerte) : aucun matériel nécessaire."""
+    from . import oled, panel
+    base = {"state": "idle", "version": "0.3.3", "remaining_s": 380000, "free_gb": 926.0, "alerts": [],
+            "storage": {"kind": "usb"}, "overruns": 0}
+    scenarios = {
+        "repos": base,
+        "enregistrement": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 4965, "remaining_s": 91000},
+        "alerte": {**base, "state": "recording", "session": "20261024-152332", "elapsed_s": 65, "overruns": 2,
+                   "alerts": [{"level": "error", "code": "overruns", "message": "x"}]},
+    }
+    if scenario not in scenarios:
+        print("scénarios : " + ", ".join(scenarios))
+        return 2
+    c = oled.Canvas()
+    panel.render(c, scenarios[scenario], 0.0, ("192.168.1.23", "xr18rec.local"))
+    print(c.ascii_art().replace(".", " "))
+    return 0
 
 
 def cmd_split(args) -> int:
@@ -172,6 +206,10 @@ def main(argv=None) -> int:
     s = sub.add_parser("serve", help="lance le serveur web")
     s.add_argument("--config", help="fichier JSON de configuration")
     s.set_defaults(fn=cmd_serve)
+    s = sub.add_parser("panel", help="face avant (écran OLED, bouton, LED) ; lancé automatiquement par serve")
+    s.add_argument("--config")
+    s.add_argument("--preview", metavar="SCENARIO", help="affiche un écran en texte : repos, enregistrement, alerte")
+    s.set_defaults(fn=cmd_panel)
     s = sub.add_parser("config", help="affiche la configuration effective")
     s.add_argument("--config")
     s.set_defaults(fn=cmd_config)

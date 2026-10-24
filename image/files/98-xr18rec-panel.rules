@@ -1,0 +1,3 @@
+# Face avant (écran OLED I²C, bouton et LED sur les broches GPIO) : accès pour le service non root (groupes i2c et gpio)
+SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
+SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"

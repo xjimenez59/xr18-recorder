@@ -43,7 +43,9 @@ echo "$VER" > "$REL/VERSION"
 python3 -m compileall -q "$REL" || true   # le service, non root, ne peut pas écrire les .pyc lui-même
 ln -sfn "$REL" "$APP/current"
 
+for g in i2c gpio; do getent group "$g" >/dev/null || groupadd -r "$g"; done
 id xr18rec >/dev/null 2>&1 || useradd --system --home-dir /var/lib/xr18rec --shell /usr/sbin/nologin --groups audio xr18rec
+usermod -aG i2c,gpio xr18rec
 install -d -o xr18rec -g xr18rec /var/lib/xr18rec /var/lib/xr18rec/recordings
 install -d -o xr18rec -g xr18rec /var/lib/xr18rec/update   # échange avec l'application : paquet déposé (non fiable)
 install -d -m 755 /var/lib/xr18rec/update-state            # compte rendu de l'installateur : root seul peut écrire
@@ -58,6 +60,7 @@ install -m 644 "$HERE/image/files/xr18rec-growfs.service" /etc/systemd/system/xr
 install -m 644 "$HERE/image/files/xr18rec-update.service" /etc/systemd/system/xr18rec-update.service
 install -m 644 "$HERE/image/files/xr18rec-update.path" /etc/systemd/system/xr18rec-update.path
 install -m 644 "$HERE/image/files/99-xr18rec-usb.rules" /etc/udev/rules.d/99-xr18rec-usb.rules
+install -m 644 "$HERE/image/files/98-xr18rec-panel.rules" /etc/udev/rules.d/98-xr18rec-panel.rules
 install -d /etc/polkit-1/rules.d
 install -m 644 "$HERE/image/files/50-xr18rec.rules" /etc/polkit-1/rules.d/50-xr18rec.rules
 install -d /etc/systemd/journald.conf.d
@@ -70,6 +73,10 @@ install -m 644 "$HERE/image/files/xr18rec.json" /boot/xr18rec.json
 install -m 644 "$HERE/image/files/LISEZMOI-XR18.txt" /boot/LISEZMOI-XR18.txt
 grep -q '^max_usb_current' /boot/config.txt || printf '\n# Enregistreur XR18\nmax_usb_current=1\n' >> /boot/config.txt
 sed -i 's/^dtparam=audio=on/dtparam=audio=off/' /boot/config.txt   # la carte son de l'XR18 est la seule utile
+# Face avant facultative (écran OLED I2C) : bus I2C activé d'office, sans effet si rien n'est branché
+if grep -q '^#\?dtparam=i2c_arm=' /boot/config.txt; then sed -i 's/^#\?dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' /boot/config.txt
+else printf 'dtparam=i2c_arm=on\n' >> /boot/config.txt; fi
+echo i2c-dev > /etc/modules-load.d/xr18rec-i2c.conf
 
 # ---- système -------------------------------------------------------------------------------
 echo xr18rec > /etc/hostname

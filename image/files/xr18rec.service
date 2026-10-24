@@ -6,10 +6,12 @@ After=network.target local-fs.target sound.target
 Type=simple
 User=xr18rec
 Group=xr18rec
-SupplementaryGroups=audio video
+SupplementaryGroups=audio video i2c gpio
 WorkingDirectory=/opt/xr18rec/current
 # En root (« + ») : copie les réglages déposés sur la partition de démarrage vers /etc après validation
 ExecStartPre=+/usr/bin/python3 -m xr18rec bootconfig
+# Face avant facultative (écran I²C) : le module du bus doit être chargé ; sans écran c'est sans effet
+ExecStartPre=-+/usr/sbin/modprobe i2c-dev
 ExecStart=/usr/bin/python3 -m xr18rec serve --config /etc/xr18rec.json
 Restart=on-failure
 RestartSec=3

@@ -22,7 +22,7 @@ import tempfile
 SYSTEM_FILES = [
     ("xr18rec.service", "systemd"), ("xr18rec-mount@.service", "systemd"), ("xr18rec-growfs.service", "systemd"),
     ("xr18rec-update.service", "systemd"), ("xr18rec-update.path", "systemd"),
-    ("99-xr18rec-usb.rules", "udev"), ("50-xr18rec.rules", "polkit"),
+    ("99-xr18rec-usb.rules", "udev"), ("98-xr18rec-panel.rules", "udev"), ("50-xr18rec.rules", "polkit"),
 ]
 UPDATER_LEVEL = 1
 

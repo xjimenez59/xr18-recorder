@@ -60,3 +60,7 @@ Dépannage : `ls /dev/i2c-1` doit exister ; `i2cdetect -y 1` (paquet `i2c-tools`
 ## Ce qui n'est pas validé
 
 Branchement réel (adresse, type de contrôleur, orientation), structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
+
+## Polices
+
+Texte et titres : polices bitmap **Spleen** (6×12, 12×24, 16×32), © Frédéric Cambus, licence BSD 2 clauses (<https://github.com/fcambus/spleen>). Les données sont dans `xr18rec/fontdata.py` (la mention de copyright et la licence y figurent), générées par `scripts/make_font.py` à partir des fichiers BDF d'origine. Le chronomètre est dessiné en sept segments (`panel.big_clock`). Texte sans accents : les accents sont retirés, l'OLED affiche « Pret ».

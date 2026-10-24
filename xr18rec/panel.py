@@ -144,51 +144,57 @@ def frame_key(st: dict | None, now: float, net: tuple[str, str], overlay=None) -
     shown = short_alert(alerts[int(now / 3) % len(alerts)], st) if alerts else None
     fraction = None if not overlay or overlay[1] is None else round(overlay[1], 2)
     return (st.get("state"), st.get("session"), fmt_clock(st.get("elapsed_s", 0)), fmt_remaining(st.get("remaining_s")),
-            (st.get("storage") or {}).get("kind"), round(st.get("free_gb", 0)), st.get("version"), shown,
-            int(now * 2) % 2, int(now / 4) % 2, overlay[0] if overlay else None, fraction, net)
+            (st.get("storage") or {}).get("kind"), st.get("version"), shown,
+            int(now * 2) % 2, int(now / 3) % 3, overlay[0] if overlay else None, fraction, net)
 
 
 def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], overlay=None) -> None:
-    """Dessine l'écran correspondant à l'état (`st` = réponse de /api/status, None si l'application ne répond pas)."""
+    """Dessine l'écran correspondant à l'état (`st` = réponse de /api/status, None si l'application ne répond pas).
+
+    Disposition (police 6×12 = 21 colonnes, 5 lignes) : en-tête y 0-11, grand affichage y 13-48, ligne du bas y 52-63."""
     c.clear()
     if st is None:
-        c.centered(14, "XR18 REC", 2)
-        c.centered(40, "Demarrage...")
+        c.centered(8, "XR18 REC", "12x24")
+        c.centered(44, "Demarrage...")
         return
     recording = st.get("state") == "recording"
     alerts = st.get("alerts") or []
     storage = st.get("storage") or {}
     where = "USB" if storage.get("kind") == "usb" else "SD"
     alert_text = ("! " + short_alert(alerts[int(now / 3) % len(alerts)], st)) if alerts else None
+    reste = "Reste " + fmt_remaining(st.get("remaining_s"))
     if recording:
         if not alert_text:  # une alerte prend la place de la ligne d'en-tête (le chronomètre reste visible)
             if int(now * 2) % 2 == 0:
-                c.disc(4, 4, 3)
-            c.text(12, 0, "REC " + str(st.get("session") or "")[:15])
-        big_clock(c, 12, fmt_clock(st.get("elapsed_s", 0)))
-        c.text(0, 55, "Reste " + fmt_remaining(st.get("remaining_s")))
-        c.text(oled.WIDTH - c.text_width(where), 55, where)
+                c.disc(5, 5, 4)
+            c.text(14, 0, "REC " + str(st.get("session") or "")[:17])
+        big_clock(c, 13, fmt_clock(st.get("elapsed_s", 0)))
+        c.text(0, 52, reste)
+        c.text(oled.WIDTH - c.text_width(where), 52, where)
     else:
         if not alert_text:
             c.text(0, 0, "XR18 REC")
             version = "v" + str(st.get("version", ""))
             c.text(oled.WIDTH - c.text_width(version), 0, version)
-        error = st.get("state") == "error"
-        c.centered(16, "ERREUR" if error else "PRET", 3)
-        c.text(0, 40, "Reste " + fmt_remaining(st.get("remaining_s")))
-        c.text(oled.WIDTH - c.text_width(where), 40, where)
-        c.text(0, 54, net[int(now / 4) % 2])
+        c.centered(15, "ERREUR" if st.get("state") == "error" else "PRET", "16x32")
+        # ligne du bas : temps restant et stockage, puis l'adresse du Pi, puis son nom, à tour de rôle (3 s chacun)
+        phase = int(now / 3) % 3
+        if phase == 0:
+            c.text(0, 52, reste)
+            c.text(oled.WIDTH - c.text_width(where), 52, where)
+        else:
+            c.centered(52, net[phase - 1])
     if alert_text:
-        c.rect(0, 0, oled.WIDTH, 11)
-        c.text(2, 2, alert_text[:20], invert=True)
+        c.rect(0, 0, oled.WIDTH, 12)
+        c.text(2, 0, alert_text[:20], invert=True)
     if overlay:
         message, fraction = overlay
-        c.rect(0, 38, oled.WIDTH, 26, False)
-        c.outline(0, 38, oled.WIDTH, 26)
-        c.centered(42, message)
+        c.rect(0, 34, oled.WIDTH, 30, False)
+        c.outline(0, 34, oled.WIDTH, 30)
+        c.centered(38, message)
         if fraction is not None:
-            c.outline(8, 53, oled.WIDTH - 16, 7)
-            c.rect(10, 55, int((oled.WIDTH - 20) * max(0.0, min(1.0, fraction))), 3)
+            c.outline(8, 54, oled.WIDTH - 16, 7)
+            c.rect(10, 56, int((oled.WIDTH - 20) * max(0.0, min(1.0, fraction))), 3)
 
 
 class Panel:

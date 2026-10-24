@@ -8,55 +8,26 @@ de 2 colonnes du SH1106).
 from __future__ import annotations
 
 import fcntl
-import functools
 import os
 import unicodedata
+
+from . import fontdata
 
 WIDTH, HEIGHT = 128, 64
 PAGES = HEIGHT // 8
 I2C_SLAVE = 0x0703
 
-# Police 5×7 classique, ASCII 32..126 : 5 colonnes par caractère, bit 0 = ligne du haut.
-_FONT_HEX = """
-0000000000 00005F0000 0007000700 147F147F14 242A7F2A12 2313086462 3649562050 0005030000 001C224100 0041221C00
-2A1C7F1C2A 08083E0808 0050300000 0808080808 0060600000 2010080402 3E5149453E 00427F4000 4261514946 2141454B31
-1814127F10 2745454539 3C4A494930 0171090503 3649494936 064949291E 0036360000 0056360000 0814224100 1414141414
-0041221408 0201510906 324979413E 7E1111117E 7F49494936 3E41414122 7F4141221C 7F49494941 7F09090901 3E4149497A
-7F0808087F 00417F4100 2040413F01 7F08142241 7F40404040 7F020C027F 7F0408107F 3E4141413E 7F09090906 3E4151215E
-7F09192946 4649494931 01017F0101 3F4040403F 1F2040201F 3F4038403F 6314081463 0708700807 6151494543 007F414100
-0204081020 0041417F00 0402010204 4040404040 0001020400 2054545478 7F48444438 3844444420 384444487F 3854545418
-087E090102 0C5252523E 7F08040478 00447D4000 2040443D00 7F10284400 00417F4000 7C04180478 7C08040478 3844444438
-7C14141408 081414187C 7C08040408 4854545420 043F444020 3C4040207C 1C2040201C 3C4030403C 4428102844 0C5050503C
-4464544C44 0008364100 00007F0000 0041360800 0804081008
-"""
+SMALL = "6x12"  # police courante ; "12x24" et "16x32" pour les titres (majuscules et chiffres seulement)
+FONTS = fontdata.FONTS
 
 
-def _build_font() -> dict[str, bytes]:
-    glyphs = _FONT_HEX.split()
-    assert len(glyphs) == 95 and all(len(g) == 10 for g in glyphs)
-    return {chr(32 + i): bytes.fromhex(g) for i, g in enumerate(glyphs)}
-
-
-FONT = _build_font()
-
-
-def ascii_text(text: str) -> str:
-    """Retire les accents et remplace ce que la police ne sait pas dessiner par « ? »."""
-    out = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return "".join(c if c in FONT else "?" for c in out)
-
-
-@functools.lru_cache(maxsize=None)
-def _scaled_columns(ch: str, scale: int) -> tuple:
-    """Colonnes du caractère agrandi `scale` fois (une valeur entière par colonne, bit 0 = haut), mises en cache."""
-    cols = []
-    for source in FONT[ch]:
-        bits = 0
-        for row in range(7):
-            if source >> row & 1:
-                bits |= ((1 << scale) - 1) << (row * scale)
-        cols.extend([bits] * scale)
-    return tuple(cols)
+def ascii_text(text: str, font: str = SMALL) -> str:
+    """Retire les accents ; ce que la police ne sait pas dessiner devient « ? » (les grandes polices n'ont que des majuscules)."""
+    glyphs = FONTS[font][2]
+    out = []
+    for c in unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode():
+        out.append(c if c in glyphs else c.upper() if c.upper() in glyphs else "?" if "?" in glyphs else " ")
+    return "".join(out)
 
 
 class Canvas:
@@ -109,21 +80,25 @@ class Canvas:
                     self.pixel(xx, yy, on)
 
     @staticmethod
-    def text_width(text: str, scale: int = 1) -> int:
-        n = len(ascii_text(text))
-        return max(0, n * 6 * scale - scale)
+    def text_width(text: str, font: str = SMALL) -> int:
+        return len(ascii_text(text, font)) * FONTS[font][0]
 
-    def text(self, x: int, y: int, text: str, scale: int = 1, invert: bool = False) -> int:
+    @staticmethod
+    def text_height(font: str = SMALL) -> int:
+        return FONTS[font][1]
+
+    def text(self, x: int, y: int, text: str, font: str = SMALL, invert: bool = False) -> int:
         """Écrit `text` ; renvoie l'abscisse qui suit. `invert` = pixels éteints sur fond allumé (le fond est à la charge de l'appelant)."""
-        for ch in ascii_text(text):
-            for i, bits in enumerate(_scaled_columns(ch, scale)):
+        cell_w, cell_h, glyphs = FONTS[font]
+        for ch in ascii_text(text, font):
+            for i, bits in enumerate(glyphs[ch]):
                 if bits:
-                    self._blit_column(x + i, y, bits, 7 * scale, not invert)
-            x += 6 * scale
+                    self._blit_column(x + i, y, bits, cell_h, not invert)
+            x += cell_w
         return x
 
-    def centered(self, y: int, text: str, scale: int = 1, invert: bool = False) -> None:
-        self.text((WIDTH - self.text_width(text, scale)) // 2, y, text, scale, invert)
+    def centered(self, y: int, text: str, font: str = SMALL, invert: bool = False) -> None:
+        self.text((WIDTH - self.text_width(text, font)) // 2, y, text, font, invert)
 
     def ascii_art(self) -> str:
         """Image en texte (un pixel = un caractère), pour les tests et le simulateur."""

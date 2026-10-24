@@ -46,15 +46,21 @@ class GpioTests(unittest.TestCase):
 
 class OledTests(unittest.TestCase):
     def test_font_covers_ascii_and_strips_accents(self):
-        self.assertEqual(len(oled.FONT), 95)
+        self.assertEqual(len(oled.FONTS["6x12"][2]), 95)
         self.assertEqual(oled.ascii_text("Prêt à enregistrer ●"), "Pret a enregistrer ")
-        self.assertEqual(oled.Canvas.text_width("ABC"), 17)
+        self.assertEqual(oled.ascii_text("pret @", "16x32"), "PRET  ")  # titres : majuscules seulement, le reste devient un espace
+        self.assertEqual(oled.Canvas.text_width("ABC"), 18)
+        self.assertEqual(oled.Canvas.text_width("PRET", "16x32"), 64)
 
     def test_text_and_pixels(self):
         c = oled.Canvas()
-        c.text(0, 0, "I")  # 'I' : barre verticale au centre de 5 colonnes
-        col = [c.buf[x] for x in range(5)]
-        self.assertEqual(col, [0x00, 0x41, 0x7F, 0x41, 0x00])
+        end = c.text(0, 0, "I")
+        self.assertEqual(end, 6)  # une cellule de 6 pixels
+        self.assertTrue(any(c.buf[x] for x in range(6)))
+        self.assertFalse(any(c.buf[x] for x in range(6, 128)))  # rien au-delà de la cellule
+        d = oled.Canvas()
+        d.text(0, 0, "g")  # descente : la lettre déborde sous la ligne de base mais reste dans la cellule de 12 lignes
+        self.assertTrue(any(d.buf[oled.WIDTH + x] for x in range(6)))
         c.pixel(127, 63)
         self.assertTrue(c.buf[7 * 128 + 127] & 0x80)
         c.pixel(200, 5)  # hors de l'écran : ignoré
@@ -157,8 +163,8 @@ class RenderTests(unittest.TestCase):
         self.assertNotEqual(self.render(None).buf, idle.buf)
         longest = self.render({**STATUS_REC, "elapsed_s": 10 * 3600 + 23 * 60 + 45})  # 10:23:45 doit tenir
         for edge in (0, 127):  # rien ne touche les bords : le chronomètre n'est pas rogné
-            self.assertFalse(any(any(row) for row in region_text(longest, edge, 12, 1, 36)))
-        self.assertTrue(any(any(row) for row in region_text(longest, 1, 12, 14, 36)))  # les 8 caractères occupent bien la largeur
+            self.assertFalse(any(any(row) for row in region_text(longest, edge, 13, 1, 36)))
+        self.assertTrue(any(any(row) for row in region_text(longest, 1, 13, 14, 36)))  # les 8 caractères occupent bien la largeur
         short = self.render({**STATUS_REC, "elapsed_s": 65})  # 01:05 : chiffres plus grands que 10:23:45
         self.assertGreater(lit(short), lit(longest) * 0.8)
 

@@ -284,10 +284,11 @@ class HttpPlaybackTests(unittest.TestCase):
         self.assertEqual((tracks[0]["index"], tracks[17]["name"]), (1, "Salle R"))
         self.assertFalse(any(t["silent"] for t in tracks))  # pas de bilan : on ne cache rien
         json.dump({"skipped_s": 0, "channels": [{"channel": 1, "peak_dbfs": None, "clip_samples": 0, "events": []},
-                                                {"channel": 2, "peak_dbfs": -12.0, "clip_samples": 0, "events": []}]},
+                                                {"channel": 2, "peak_dbfs": -12.0, "clip_samples": 0, "events": []},
+                                                {"channel": 3, "peak_dbfs": -42.1, "clip_samples": 0, "events": []}]},  # plancher de mesure
                   open(os.path.join(self.dir, "levels.json"), "w"))
         tracks = json.loads(self.get(f"/api/play/{self.name}")[2])["tracks"]
-        self.assertEqual([t["silent"] for t in tracks[:3]], [True, False, False])  # la voie 3 n'est pas dans le bilan
+        self.assertEqual([t["silent"] for t in tracks[:4]], [True, False, True, False])  # voie 3 : bruit (-42,1 dB) ; voie 4 : absente du bilan
         json.dump({"skipped_s": 4, "channels": [{"channel": 1, "peak_dbfs": None}]},
                   open(os.path.join(self.dir, "levels.json"), "w"))
         tracks = json.loads(self.get(f"/api/play/{self.name}")[2])["tracks"]

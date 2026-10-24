@@ -21,6 +21,7 @@ from .xr18osc import NUM_INPUTS, color_rgb
 HEADER_BYTES = 44
 FRAME_BYTES = 4  # stéréo 16 bits
 CHUNK_FRAMES = 8192  # ~170 ms d'audio par lecture de fichier
+SILENT_DB = -41.0  # la mesure n'a que 8 bits : -42,1 dB = un seul échantillon à -1, c'est-à-dire le bruit numérique d'une voie sans signal
 MAX_PCM_SECONDS = 10.0  # durée maximale demandée en une fois pour les voies une à une
 _BITS_TO_FORMAT = {16: "S16_LE", 24: "S24_3LE", 32: "S32_LE"}
 
@@ -156,7 +157,8 @@ def track_infos(directory: str, audio: SessionAudio, names: list[str], layout=No
     """Les voies de la session pour la page d'écoute : nom, couleur, crête de la prise, voie silencieuse ?
 
     Une voie est dite silencieuse si le bilan de niveaux de la prise (levels.json) n'a mesuré aucun signal dessus
-    (crête nulle : voie mutée sur la console mais envoyée quand même en USB) ET que l'analyse était complète ;
+    (crête nulle ou au plancher de la mesure, `SILENT_DB` : voie mutée sur la console mais envoyée quand même en USB)
+    ET que l'analyse était complète ;
     sans bilan fiable on ne cache rien."""
     from .reaper import load_levels
 
@@ -172,5 +174,5 @@ def track_infos(directory: str, audio: SessionAudio, names: list[str], layout=No
         peak = entry.get("peak_dbfs") if entry else None
         out.append({"index": i + 1, "name": names[i], "color": "#%02x%02x%02x" % rgb if rgb else None,
                     "peak_db": peak, "clipped": bool(entry and entry.get("clip_samples")),
-                    "silent": bool(reliable and entry is not None and peak is None)})
+                    "silent": bool(reliable and entry is not None and (peak is None or peak <= SILENT_DB))})
     return out

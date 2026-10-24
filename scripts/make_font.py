@@ -4,15 +4,16 @@
 Spleen : https://github.com/fcambus/spleen (licence BSD 2 clauses, © Frederic Cambus). Usage :
     python3 scripts/make_font.py DOSSIER_DES_BDF > xr18rec/fontdata.py
 où DOSSIER_DES_BDF contient spleen-6x12.bdf, spleen-12x24.bdf, spleen-16x32.bdf et LICENSE.
-La petite police garde tout l'ASCII imprimable ; les grandes (titres) seulement majuscules, chiffres et quelques signes.
+La petite police garde l'ASCII imprimable et les accents du français ; les grandes (titres) seulement majuscules (accentuées), chiffres et quelques signes.
 """
 
 import os
 import sys
 
-FONTS = [("6x12", string_ascii := "".join(chr(c) for c in range(32, 127))),
-         ("12x24", " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:!-"),
-         ("16x32", " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:!-")]
+ASCII = "".join(chr(c) for c in range(32, 127))
+ACCENTS = "ÀÂÄÇÈÉÊËÎÏÔÖÙÛÜàâäçèéêëîïôöùûüÿ°«»"  # français
+CAPS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:!-ÀÂÄÇÈÉÊËÎÏÔÖÙÛÜŒ"
+FONTS = [("6x12", ASCII + ACCENTS), ("12x24", CAPS), ("16x32", CAPS)]
 
 
 def parse(path: str):
@@ -70,8 +71,10 @@ def main(folder: str) -> None:
         width, height, glyphs = parse(os.path.join(folder, f"spleen-{name}.bdf"))
         print(f'    "{name}": ({width}, {height}, {{')
         for ch in chars:
-            cols = glyphs.get(ord(ch), (0,) * width)
-            print(f"        {ch!r}: {cols!r},")
+            if ord(ch) not in glyphs:
+                print(f"police {name} : caractère absent {ch!r}", file=sys.stderr)
+                continue
+            print(f"        {ch!r}: {glyphs[ord(ch)]!r},")
         print("    }),")
     print("}")
 

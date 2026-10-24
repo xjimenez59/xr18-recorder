@@ -46,9 +46,9 @@ class GpioTests(unittest.TestCase):
 
 class OledTests(unittest.TestCase):
     def test_font_covers_ascii_and_strips_accents(self):
-        self.assertEqual(len(oled.FONTS["6x12"][2]), 95)
-        self.assertEqual(oled.ascii_text("Prêt à enregistrer ●"), "Pret a enregistrer ")
-        self.assertEqual(oled.ascii_text("pret @", "16x32"), "PRET  ")  # titres : majuscules seulement, le reste devient un espace
+        self.assertTrue(all(c in oled.FONTS["6x12"][2] for c in "ABCxyz09 éèêàçôûÉ"))
+        self.assertEqual(oled.ascii_text("Prêt à enregistrer ●"), "Prêt à enregistrer ")  # accents conservés ; ● ignoré
+        self.assertEqual(oled.ascii_text("prêt @", "16x32"), "PRÊT ")  # titres : majuscules, accents compris ; caractère inconnu ignoré
         self.assertEqual(oled.Canvas.text_width("ABC"), 18)
         self.assertEqual(oled.Canvas.text_width("PRET", "16x32"), 64)
 
@@ -289,7 +289,7 @@ class PanelLoopTests(unittest.TestCase):
             raise RuntimeError("disque absent")
         p.post = broken
         self.run_press(p, 0.3)
-        self.assertIn("Echec REC", p.notice[0])
+        self.assertIn("Échec REC", p.notice[0])
 
 
 class BuildTests(unittest.TestCase):

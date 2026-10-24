@@ -22,11 +22,24 @@ FONTS = fontdata.FONTS
 
 
 def ascii_text(text: str, font: str = SMALL) -> str:
-    """Retire les accents ; ce que la police ne sait pas dessiner devient « ? » (les grandes polices n'ont que des majuscules)."""
+    """Ne garde que ce que la police sait dessiner : majuscule si la police n'a que des capitales, sinon la lettre sans
+    accent, sinon « ? » (ou rien si la police n'a pas de point d'interrogation)."""
     glyphs = FONTS[font][2]
     out = []
-    for c in unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode():
-        out.append(c if c in glyphs else c.upper() if c.upper() in glyphs else "?" if "?" in glyphs else " ")
+    for c in unicodedata.normalize("NFC", text):
+        if c in glyphs:
+            out.append(c)
+        elif c.upper() in glyphs:
+            out.append(c.upper())
+        else:
+            base = unicodedata.normalize("NFKD", c).encode("ascii", "ignore").decode()
+            if base and base in glyphs:
+                out.append(base)
+            elif base and base.upper() in glyphs:
+                out.append(base.upper())
+            elif not base.strip() and c.isprintable() and ord(c) < 128:
+                out.append(" ")
+            # caractère inconnu non décomposable (● par exemple) : ignoré
     return "".join(out)
 
 

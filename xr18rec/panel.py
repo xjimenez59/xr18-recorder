@@ -29,9 +29,9 @@ NOTICE_S = 2.5
 
 SHORT_ALERTS = {
     "take_undervoltage": "SOUS-TENSION", "undervoltage": "SOUS-TENSION", "take_throttled": "RALENTISSEMENT",
-    "throttled": "RALENTISSEMENT", "take_temp": "TEMPERATURE", "temp": "TEMPERATURE", "temperature": "TEMPERATURE",
-    "levels_partial": "ANALYSE PARTIELLE", "recorder": "ERREUR ENREGISTR.", "space": "DISQUE PLEIN BIENTOT",
-    "load": "PI SURCHARGE", "memory": "MEMOIRE",
+    "throttled": "RALENTISSEMENT", "take_temp": "TEMPÉRATURE", "temp": "TEMPÉRATURE", "temperature": "TEMPÉRATURE",
+    "levels_partial": "ANALYSE PARTIELLE", "recorder": "ERREUR ENREGISTR.", "space": "DISQUE PRESQUE PLEIN",
+    "load": "PI SURCHARGE", "memory": "MÉMOIRE",
 }
 
 
@@ -87,7 +87,7 @@ class ButtonLogic:
                     if held >= self.STOP_HOLD:
                         action, self.fired = "stop", True
                     elif held >= self.SHOW_AFTER:
-                        overlay = ("Maintenir : ARRET", held / self.STOP_HOLD)
+                        overlay = ("Maintenir : ARRÊT", held / self.STOP_HOLD)
                 elif held >= self.POWER_HOLD:
                     action, self.fired = "poweroff", True
                 elif held >= self.POWER_SHOW:
@@ -155,7 +155,7 @@ def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], ov
     c.clear()
     if st is None:
         c.centered(8, "XR18 REC", "12x24")
-        c.centered(44, "Demarrage...")
+        c.centered(44, "Démarrage...")
         return
     recording = st.get("state") == "recording"
     alerts = st.get("alerts") or []
@@ -176,7 +176,7 @@ def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], ov
             c.text(0, 0, "XR18 REC")
             version = "v" + str(st.get("version", ""))
             c.text(oled.WIDTH - c.text_width(version), 0, version)
-        c.centered(15, "ERREUR" if st.get("state") == "error" else "PRET", "16x32")
+        c.centered(15, "ERREUR" if st.get("state") == "error" else "PRÊT", "16x32")
         # ligne du bas : temps restant et stockage, puis l'adresse du Pi, puis son nom, à tour de rôle (3 s chacun)
         phase = int(now / 3) % 3
         if phase == 0:
@@ -239,14 +239,14 @@ class Panel:
 
     def _act(self, now: float, action: str) -> None:
         if action == "start":
-            self._call(now, "/api/start", {}, "Echec REC")
+            self._call(now, "/api/start", {}, "Échec REC")
         elif action == "stop":
-            self._call(now, "/api/stop", {}, "Echec STOP")
+            self._call(now, "/api/stop", {}, "Échec STOP")
         elif action == "poweroff":
             self._say(now, "Extinction...", 30)
-            self._call(now, "/api/system/power", {"action": "poweroff"}, "Echec")
+            self._call(now, "/api/system/power", {"action": "poweroff"}, "Échec")
         elif action == "hint":
-            self._say(now, "Maintenir 2 s : ARRET")
+            self._say(now, "Maintenir 2 s : ARRÊT")
 
     # -- un tour de boucle
     def step(self) -> None:

@@ -180,6 +180,17 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(panel.short_alert(alerts[0], {"overruns": 3}), "AUDIO PERDU x3")
         self.assertEqual(panel.short_alert({"code": "inconnu", "message": "bizarre"}, {}), "BIZARRE")
 
+    def test_error_cause_is_explicit(self):
+        msg = "arecord s'est arrêté (code 1) : ALSA lib confmisc.c:165:(snd_config_get_card) Cannot get card index for XR18 | arecord: main:850: audio open error: No such device"
+        alert = {"code": "recorder", "message": "Enregistrement interrompu : " + msg}
+        self.assertEqual(panel.short_alert(alert, {}), "XR18 INTROUVABLE")
+        self.assertEqual(panel.error_cause("espace disque épuisé : arrêt de l'enregistrement"), "DISQUE PLEIN")
+        self.assertEqual(panel.error_cause("autre chose"), "ERREUR ENREGISTR.")
+        for _, label in panel.ERROR_CAUSES:
+            self.assertLessEqual(len(label) + 2, 20, label)  # « ! » + libellé tient dans la barre
+        c = self.render({**STATUS_REC, "state": "error", "alerts": [alert]}, 0.0)
+        self.assertTrue(any(c.buf))
+
     def test_overlay_draws_progress(self):
         base = self.render(STATUS_REC)
         c = self.render(STATUS_REC, overlay=("Maintenir : ARRET", 0.5))

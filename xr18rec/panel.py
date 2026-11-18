@@ -48,10 +48,32 @@ def fmt_remaining(seconds) -> str:
     return f"{s // 3600}h{s % 3600 // 60:02d}" if s >= 3600 else f"{s // 60} min"
 
 
+# Causes d'une erreur d'enregistrement : (fragment du message d'arecord / de l'application, libellé de 20 caractères maxi).
+ERROR_CAUSES = (
+    ("no such device", "XR18 INTROUVABLE"), ("cannot get card index", "XR18 INTROUVABLE"),
+    ("no such file", "XR18 INTROUVABLE"),
+    ("busy", "XR18 OCCUPE"),
+    ("espace disque", "DISQUE PLEIN"), ("no space left", "DISQUE PLEIN"),
+    ("read-only", "DISQUE EN LECTURE"), ("permission denied", "ACCES REFUSE"),
+    ("sample format", "FORMAT REFUSE"), ("channels count", "VOIES NON DISPO"), ("sample rate", "FREQUENCE REFUSEE"),
+)
+
+
+def error_cause(message: str) -> str:
+    """Libellé court de la cause d'une erreur d'enregistrement (d'après le texte d'arecord), sinon un libellé générique."""
+    low = str(message).lower()
+    for fragment, label in ERROR_CAUSES:
+        if fragment in low:
+            return label
+    return "ERREUR ENREGISTR."
+
+
 def short_alert(alert: dict, status: dict) -> str:
     code = str(alert.get("code", ""))
     if code == "overruns":
         return f"AUDIO PERDU x{status.get('overruns', '?')}"
+    if code == "recorder":
+        return error_cause(alert.get("message", ""))
     return SHORT_ALERTS.get(code) or str(alert.get("message", "ALERTE")).upper()
 
 
@@ -179,7 +201,9 @@ def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], ov
         c.centered(15, "ERREUR" if st.get("state") == "error" else "PRÊT", "16x32")
         # ligne du bas : temps restant et stockage, puis l'adresse du Pi, puis son nom, à tour de rôle (3 s chacun)
         phase = int(now / 3) % 3
-        if phase == 0:
+        if st.get("state") == "error" and alert_text and "INTROUVABLE" in alert_text:
+            c.centered(52, "Verifier cable USB")
+        elif phase == 0:
             c.text(0, 52, reste)
             c.text(oled.WIDTH - c.text_width(where), 52, where)
         else:

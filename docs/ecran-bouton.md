@@ -60,9 +60,18 @@ L'image publiée à partir de cette version active le bus I²C. Sur une carte in
 
 Dépannage : `ls /dev/i2c-1` doit exister ; `i2cdetect -y 1` (paquet `i2c-tools`) doit montrer `3c` ou `3d`. Le journal (`journalctl -u xr18rec`) indique « face avant : écran détecté » ou « aucun écran détecté ».
 
+## Premier montage (18/11/2026) : écran 2,42" `M242-12864-4-V2.0` (SSD1309, I²C) validé
+
+Pi 2 B, câblage du tableau ci-dessus : l'écran affiche « PRET ». Deux pièges rencontrés :
+
+1. **I²C inactif** : sur le Pi testé (image 0.3.4), `dtparam=i2c_arm=on` était **commenté** dans `/boot/firmware/config.txt` (`/dev/i2c-1` absent). Corrigé à la main (`sudo sed`, redémarrage). `image/customize.sh` contient pourtant la ligne : à contrôler sur une image neuve (l'image flashée est peut-être antérieure).
+2. **Pas d'ACK sur le module** : le balayage I²C ne trouvait **rien**, alors que câblage, tensions et GPIO2/3 (`pinctrl get 2,3` → `SDA1`/`SCL1`) étaient bons. Au dos du module, l'inscription « 如需ACK应答，请短接D2 » (« pour l'ACK, court-circuiter D2 ») : D2 est une diode en série sur la ligne SDA ; il faut **relier ses deux plots par une goutte d'étain** (ne pas toucher D1, ni les plots d'adresse `0X7A`/`0X7B`). Ensuite l'écran répond.
+
+Diagnostic sans `i2c-tools` : balayage par `ioctl(I2C_SLAVE)` + `write`/`read` sur `/dev/i2c-1` (en root) ; journal « face avant : écran détecté ». Sur un module muet, vérifier d'abord ce pont avant de chercher dans le câblage. Brochage du module : GND, VDD, SCL, SDA (SCL avant SDA, à l'inverse du tableau : attention).
+
 ## Ce qui n'est pas validé
 
-Branchement réel (adresse, type de contrôleur, orientation), structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
+Bouton et anneau LED (non câblés à ce jour), orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
 
 ## Polices
 

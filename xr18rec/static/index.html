@@ -25,17 +25,13 @@
   </div>
 </div>
 
-<div class="card" id="levelscard">
-  <div class="row" style="justify-content:space-between">
-    <b>Niveaux</b><span class="muted" id="lvlstate"></span>
+<div class="card" id="mutecard" hidden>
+  <b>Mute</b>
+  <div class="mutes">
+    <button class="mutebtn" id="mute-buses" disabled></button>
+    <button class="mutebtn" id="mute-main" disabled></button>
   </div>
-  <div class="meters" id="meters" hidden></div>
-  <div class="lvlwarn" id="lvlwarn"></div>
-  <div class="muted" id="lvlok"></div>
-  <div class="row" style="margin-top:8px">
-    <button class="ghost" id="lvlmon">Écouter les niveaux</button>
-    <button class="ghost" id="lvlreset" hidden>Remise à zéro des crêtes</button>
-  </div>
+  <div class="err" id="muteerr"></div>
 </div>
 
 <div class="card" id="clkcard">
@@ -71,14 +67,16 @@
   </div>
 </div>
 
-<div class="card" id="mutecard" hidden>
-  <b>Mute</b>
-  <div class="mutes">
-    <button class="mutebtn" id="mute-buses" disabled></button>
-    <button class="mutebtn" id="mute-main" disabled></button>
+<details class="card" id="levelscard">
+  <summary><b>Niveaux</b> <span class="muted" id="lvlstate"></span></summary>
+  <div class="meters" id="meters" hidden></div>
+  <div class="lvlwarn" id="lvlwarn"></div>
+  <div class="muted" id="lvlok"></div>
+  <div class="row" style="margin-top:8px">
+    <button class="ghost" id="lvlmon">Écouter les niveaux</button>
+    <button class="ghost" id="lvlreset" hidden>Remise à zéro des crêtes</button>
   </div>
-  <div class="err" id="muteerr"></div>
-</div>
+</details>
 
 <div class="muted" id="nohost" hidden style="text-align:center">
   Console XR18 non configurée : <a href="/settings">saisir son adresse dans les paramètres</a>.
@@ -185,6 +183,7 @@ let levelsTimer = null;
 async function pollLevels() {
   clearTimeout(levelsTimer);
   let wait = 3000;
+  if (!$('levelscard').open) { levelsTimer = setTimeout(pollLevels, wait); return; }  // carte repliée : rien à interroger (l'alerte de saturation est dans la bannière)
   try { const d = await api('/api/levels'); renderLevels(d); wait = d.active ? 250 : 3000; } catch (e) { /* on réessaie */ }
   levelsTimer = setTimeout(pollLevels, wait);
 }
@@ -193,6 +192,7 @@ $('lvlmon').onclick = async () => {
   try { renderLevels(await api('/api/levels/monitor', {on: lvlMode !== 'monitor'})); }
   catch (e) { $('lvlok').textContent = '⚠ ' + e.message; }
 };
+$('levelscard').addEventListener('toggle', pollLevels);
 pollLevels();
 
 // Métronome : réglages mémorisés par /api/settings (appliqués au battement suivant, même pendant une prise).

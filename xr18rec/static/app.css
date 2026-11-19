@@ -82,3 +82,7 @@ a.btn.disabled { opacity:.35; pointer-events:none; }
 .clk input[type=checkbox] { width:1.3rem; height:1.3rem; flex:none; }
 .clkbtn { min-width:132px; min-height:48px; }
 .clkbtn.on { background:var(--ok); }
+details.card > summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+details.card > summary::-webkit-details-marker { display:none; }
+details.card > summary::after { content:"▾"; color:var(--muted); }
+details.card[open] > summary::after { content:"▴"; }

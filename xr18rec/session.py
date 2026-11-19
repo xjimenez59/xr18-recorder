@@ -207,6 +207,14 @@ class Recorder:
         if mon is not None and mon.skipped_seconds() > 0:
             out.append({"level": "warn", "code": "levels_partial", "message":
                         "Analyse des niveaux partielle : le Pi était trop chargé (l'enregistrement n'est pas touché)."})
+        clipped = self._levels_summary()["clipped"]
+        if clipped:
+            who = ", ".join(c["name"] + (f" (à {health_mod.fmt_time(c['first_s'])})" if c["first_s"] is not None else "")
+                            for c in clipped[:4])
+            more = f" et {len(clipped) - 4} autre{'s' if len(clipped) > 5 else ''}" if len(clipped) > 4 else ""
+            out.append({"level": "warn", "code": "clipping", "message":
+                        f"Saturation : {who}{more}. Baissez le gain de {'cette voie' if len(clipped) == 1 else 'ces voies'} "
+                        "si la prise continue."})
         if self._error:
             out.append({"level": "error", "code": "recorder", "message": f"Enregistrement interrompu : {self._error}"})
         skip = {"undervoltage", "undervoltage_seen"} if take.get("undervoltage") else set()

@@ -220,7 +220,12 @@ class RecorderLevelsTests(unittest.TestCase):
             self.assertFalse(live["channels"][0]["clipped"])
             self.assertEqual(live["names"][2], "Ch 03")
             self.assertEqual([c["channel"] for c in rec.status()["levels"]["clipped"]], [3])
+            alert = [a for a in rec.status()["alerts"] if a["code"] == "clipping"]  # bannière de l'accueil
+            self.assertEqual(len(alert), 1)
+            self.assertEqual(alert[0]["level"], "warn")
+            self.assertIn("Ch 03", alert[0]["message"])
             rec.stop()
+            self.assertEqual(len([a for a in rec.status()["alerts"] if a["code"] == "clipping"]), 1)  # gardée après l'arrêt
             d = os.path.join(rec.cfg.output_dir, name)
             report = json.load(open(os.path.join(d, "levels.json")))
             self.assertGreater(report["channels"][2]["clip_samples"], 0)

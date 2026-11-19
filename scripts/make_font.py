@@ -12,7 +12,7 @@ import sys
 
 ASCII = "".join(chr(c) for c in range(32, 127))
 ACCENTS = "ÀÂÄÇÈÉÊËÎÏÔÖÙÛÜàâäçèéêëîïôöùûüÿ°«»"  # français
-CAPS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:!-ÀÂÄÇÈÉÊËÎÏÔÖÙÛÜŒ"
+CAPS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:!'-ÀÂÄÇÈÉÊËÎÏÔÖÙÛÜŒ"
 FONTS = [("6x12", ASCII + ACCENTS), ("12x24", CAPS), ("16x32", CAPS)]
 
 

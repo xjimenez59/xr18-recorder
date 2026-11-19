@@ -86,3 +86,5 @@ details.card > summary { cursor:pointer; list-style:none; display:flex; justify-
 details.card > summary::-webkit-details-marker { display:none; }
 details.card > summary::after { content:"▾"; color:var(--muted); }
 details.card[open] > summary::after { content:"▴"; }
+.iconbtn { min-width:44px; min-height:44px; padding:0; font-size:1.4rem; line-height:1; border-radius:50%; touch-action:manipulation; flex:none; }
+.iconbtn.on { background:var(--accent); color:#fff; }

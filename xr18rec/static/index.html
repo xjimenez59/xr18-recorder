@@ -35,8 +35,9 @@
 </div>
 
 <div class="card" id="clkcard">
-  <div class="row" style="justify-content:space-between">
-    <b>Métronome</b><span class="muted" id="clkstate"></span>
+  <div class="row" style="justify-content:space-between; flex-wrap:nowrap">
+    <div><b>Métronome</b> <span class="muted" id="clkstate"></span></div>
+    <button class="ghost iconbtn" id="clkgear" aria-label="Réglages du métronome" aria-expanded="false" aria-controls="clkset" title="Réglages du métronome">⚙</button>
   </div>
   <div class="clk">
     <div class="row" style="justify-content:space-between">
@@ -48,12 +49,15 @@
       </div>
       <button class="clkbtn" id="clkbtn">▶ Clic</button>
     </div>
-    <div class="field"><span>Temps / mesure</span><select id="clkbeats"></select></div>
-    <label><input type="checkbox" id="clkaccent"> Temps 1 plus aigu et plus fort</label>
-    <div class="field"><span>Son</span><select id="clksound"></select></div>
-    <div class="field"><span>Niveau <b id="clklvlv"></b></span><input type="range" id="clklevel" min="-40" max="0" step="1"></div>
-    <label><input type="checkbox" id="clkrec"> Démarrer avec REC (s’arrête avec la prise)</label>
-    <div class="muted" id="clkinfo"></div>
+    <div class="muted" id="clkrecnote" hidden>Démarre avec REC</div>
+    <div id="clkset" class="clk" hidden>
+      <div class="field"><span>Temps / mesure</span><select id="clkbeats"></select></div>
+      <label><input type="checkbox" id="clkaccent"> Temps 1 plus aigu et plus fort</label>
+      <div class="field"><span>Son</span><select id="clksound"></select></div>
+      <div class="field"><span>Niveau <b id="clklvlv"></b></span><input type="range" id="clklevel" min="-40" max="0" step="1"></div>
+      <label><input type="checkbox" id="clkrec"> Démarrer avec REC (s’arrête avec la prise)</label>
+      <div class="muted" id="clkinfo"></div>
+    </div>
     <div class="err" id="clkerr"></div>
   </div>
 </div>
@@ -211,6 +215,7 @@ function renderClick(d) {
   clkSet($('clkbpm'), d.bpm); clkSet($('clkbeats'), d.beats); clkSet($('clksound'), d.sound);
   clkSet($('clkaccent'), d.accent); clkSet($('clkrec'), d.with_rec); clkSet($('clklevel'), d.level_db);
   $('clklvlv').textContent = d.level_db + ' dB';
+  $('clkrecnote').hidden = !d.with_rec;
   $('clkinfo').textContent = `Sort sur la voie USB ${d.channel} de la console (source « USB ${d.channel} », départs vers les bus des retours, voie désassignée du LR).`;
   $('clkerr').textContent = d.error ? '⚠ ' + d.error : (d.underruns ? `⚠ ${d.underruns} coupure(s) de lecture : le clic a pu sauter un temps.` : '');
 }
@@ -221,6 +226,12 @@ async function clkSave(patch) {
 async function pollClick() {
   try { renderClick(await api('/api/click')); } catch (e) { /* on réessaie */ }
 }
+$('clkgear').onclick = () => {
+  const open = $('clkset').hidden;
+  $('clkset').hidden = !open;
+  $('clkgear').setAttribute('aria-expanded', String(open));
+  $('clkgear').classList.toggle('on', open);
+};
 $('clkbtn').onclick = async () => {
   try { renderClick(await api(clk.last && clk.last.running ? '/api/click/stop' : '/api/click/start', {})); }
   catch (e) { $('clkerr').textContent = '⚠ ' + e.message; }

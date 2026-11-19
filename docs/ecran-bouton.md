@@ -69,9 +69,15 @@ Pi 2 B, câblage du tableau ci-dessus : l'écran affiche « PRET ». Deux piège
 
 Diagnostic sans `i2c-tools` : balayage par `ioctl(I2C_SLAVE)` + `write`/`read` sur `/dev/i2c-1` (en root) ; journal « face avant : écran détecté ». Sur un module muet, vérifier d'abord ce pont avant de chercher dans le câblage. Brochage du module : GND, VDD, SCL, SDA (SCL avant SDA, à l'inverse du tableau : attention).
 
+### Bouton et anneau (19/11/2026)
+
+- **Bouton** `E1745` (marque Gebildet, 16 mm, 4 fils) : **deux fils verts** = contact (broches 11 et 9), **rouge/noir** = anneau LED. Aucune tension écrite sur le bouton ni l'étiquette : essai avec 220 Ω en série, **franc en 5 V** (broche 4). Un appui court au repos lance bien l'enregistrement (sans XR18, l'écran affiche « ERREUR » + « XR18 INTROUVABLE »).
+- **Anneau** : 5 V (broche 4) → 220 Ω → fil rouge ; fil noir → collecteur d'un **BC547** (face plate vers soi : C, B, E) ; émetteur → masse (broche 14) ; base → 1 kΩ → GPIO27 (broche 13). Validé par un clignotement forcé (`sudo pinctrl set 27 op dh|dl`) ; le service réécrit GPIO27 chaque seconde, `pinctrl` ne tient donc qu'un instant (clignoter en boucle, ou arrêter le service).
+- Pas encore vu avec une vraie prise (anneau fixe, clignotement d'alerte), ni arrêt (2 s) ni extinction (5 s).
+
 ## Ce qui n'est pas validé
 
-Bouton et anneau LED (non câblés à ce jour), orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
+Comportement du bouton et de l'anneau pendant une vraie prise, orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
 
 ## Polices
 

@@ -60,9 +60,8 @@ def cmd_panel(args) -> int:
     cfg = config_mod.load(args.config)
     config_mod.apply_overlay(cfg)
     if args.boot:
-        stop = threading.Event()
-        signal.signal(signal.SIGTERM, lambda *_: stop.set())
-        return panel.run_boot(cfg, stop)
+        from . import bootscreen
+        return bootscreen.main(["--config", args.config] if args.config else [])
     if args.preview:
         return panel_preview(args.preview)
     if args.simulate:

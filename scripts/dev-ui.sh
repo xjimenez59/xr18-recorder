@@ -16,8 +16,15 @@ export FAKE_ARECORD_LOCK="$TMP/carte.lock"  # carte exclusive : un seul programm
 exec python3 "$ROOT/tests/fake_arecord.py" "\$@"
 EOF
 chmod +x "$TMP/arecord"
+cat > "$TMP/aplay" <<EOF
+#!/bin/sh
+export FAKE_APLAY_OUT="$TMP/aplay.raw"  # le métronome écrit ici (écrasé à chaque lancement)
+rm -f "$TMP/aplay.raw"
+exec python3 "$ROOT/tests/fake_aplay.py" "\$@"
+EOF
+chmod +x "$TMP/aplay"
 cat > "$TMP/config.json" <<EOF
-{"output_dir": "$TMP/rec", "arecord_bin": "$TMP/arecord", "segment_seconds": 10,
+{"output_dir": "$TMP/rec", "arecord_bin": "$TMP/arecord", "aplay_bin": "$TMP/aplay", "segment_seconds": 10,
  "min_free_gb": 0.1, "host": "0.0.0.0", "port": $PORT,
  "xr18_host": "127.0.0.1", "xr18_osc_port": $OSC_PORT,
  "state_file": "$TMP/state.json", "settings_file": "$TMP/settings.json", "panel": "off"}

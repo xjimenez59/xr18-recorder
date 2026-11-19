@@ -38,6 +38,30 @@
   </div>
 </div>
 
+<div class="card" id="clkcard">
+  <div class="row" style="justify-content:space-between">
+    <b>Métronome</b><span class="muted" id="clkstate"></span>
+  </div>
+  <div class="clk">
+    <div class="row" style="justify-content:space-between">
+      <div class="bpmrow">
+        <button class="ghost" id="clkminus" aria-label="Ralentir">−</button>
+        <input type="number" id="clkbpm" min="30" max="240" inputmode="numeric" aria-label="Tempo en battements par minute">
+        <button class="ghost" id="clkplus" aria-label="Accélérer">+</button>
+        <span class="muted">bpm</span>
+      </div>
+      <button class="clkbtn" id="clkbtn">▶ Clic</button>
+    </div>
+    <div class="field"><span>Temps / mesure</span><select id="clkbeats"></select></div>
+    <label><input type="checkbox" id="clkaccent"> Temps 1 plus aigu et plus fort</label>
+    <div class="field"><span>Son</span><select id="clksound"></select></div>
+    <div class="field"><span>Niveau <b id="clklvlv"></b></span><input type="range" id="clklevel" min="-40" max="0" step="1"></div>
+    <label><input type="checkbox" id="clkrec"> Démarrer avec REC (s’arrête avec la prise)</label>
+    <div class="muted" id="clkinfo"></div>
+    <div class="err" id="clkerr"></div>
+  </div>
+</div>
+
 <div class="card">
   <b>Retours des musiciens</b>
   <div style="margin-top:8px; text-align:center">
@@ -170,6 +194,48 @@ $('lvlmon').onclick = async () => {
   catch (e) { $('lvlok').textContent = '⚠ ' + e.message; }
 };
 pollLevels();
+
+// Métronome : réglages mémorisés par /api/settings (appliqués au battement suivant, même pendant une prise).
+const clk = {last: null};
+function clkSet(el, v) { if (document.activeElement !== el) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } }
+function renderClick(d) {
+  clk.last = d;
+  const b = $('clkbtn');
+  b.textContent = d.running ? '■ Arrêter' : '▶ Clic';
+  b.classList.toggle('on', d.running);
+  $('clkstate').textContent = d.running ? `en marche · temps ${d.beat}/${d.beats}` + (d.started_by_rec ? ' · avec REC' : '') : '';
+  if (!$('clksound').options.length) {
+    for (const s of d.sounds) $('clksound').append(new Option(s.label, s.id));
+    for (let n = 1; n <= 12; n++) $('clkbeats').append(new Option(n === 1 ? '1 (sans mesure)' : String(n), n));
+  }
+  clkSet($('clkbpm'), d.bpm); clkSet($('clkbeats'), d.beats); clkSet($('clksound'), d.sound);
+  clkSet($('clkaccent'), d.accent); clkSet($('clkrec'), d.with_rec); clkSet($('clklevel'), d.level_db);
+  $('clklvlv').textContent = d.level_db + ' dB';
+  $('clkinfo').textContent = `Sort sur la voie USB ${d.channel} de la console (source « USB ${d.channel} », départs vers les bus des retours, voie désassignée du LR).`;
+  $('clkerr').textContent = d.error ? '⚠ ' + d.error : (d.underruns ? `⚠ ${d.underruns} coupure(s) de lecture : le clic a pu sauter un temps.` : '');
+}
+async function clkSave(patch) {
+  try { await api('/api/settings', patch); renderClick(await api('/api/click')); }
+  catch (e) { $('clkerr').textContent = '⚠ ' + e.message; }
+}
+async function pollClick() {
+  try { renderClick(await api('/api/click')); } catch (e) { /* on réessaie */ }
+}
+$('clkbtn').onclick = async () => {
+  try { renderClick(await api(clk.last && clk.last.running ? '/api/click/stop' : '/api/click/start', {})); }
+  catch (e) { $('clkerr').textContent = '⚠ ' + e.message; }
+};
+const clkBpm = v => Math.max(30, Math.min(240, Math.round(v)));
+$('clkminus').onclick = () => clk.last && clkSave({click_bpm: clkBpm(clk.last.bpm - 1)});
+$('clkplus').onclick = () => clk.last && clkSave({click_bpm: clkBpm(clk.last.bpm + 1)});
+$('clkbpm').onchange = e => clkSave({click_bpm: clkBpm(Number(e.target.value) || 100)});
+$('clkbeats').onchange = e => clkSave({click_beats: Number(e.target.value)});
+$('clksound').onchange = e => clkSave({click_sound: e.target.value});
+$('clkaccent').onchange = e => clkSave({click_accent: e.target.checked});
+$('clkrec').onchange = e => clkSave({click_with_rec: e.target.checked});
+$('clklevel').oninput = e => { $('clklvlv').textContent = e.target.value + ' dB'; };
+$('clklevel').onchange = e => clkSave({click_level_db: Number(e.target.value)});
+pollClick(); setInterval(pollClick, 1000);
 
 const controls = initRecordControls();
 let lastState = null;

@@ -73,6 +73,7 @@ class Recorder:
         self._levels_thread: threading.Thread | None = None
         self._notice: str | None = None
         self._active_dir = self._restore_choice()
+        self.on_started = None  # rappel sans argument appelé au début de chaque prise (métronome « avec REC »)
 
     # ---- commande ---------------------------------------------------------
     def build_command(self, basename: str) -> list[str]:
@@ -595,6 +596,11 @@ class Recorder:
                 self._layout_thread = threading.Thread(target=self._snapshot_layout, args=(directory,),
                                                        daemon=True, name="xr18-layout")
                 self._layout_thread.start()
+            if self.on_started is not None:
+                try:
+                    self.on_started()
+                except Exception:  # un rappel ne doit jamais faire échouer ni retarder la prise
+                    pass
             return os.path.basename(directory)
 
     def _snapshot_layout(self, directory: str) -> None:

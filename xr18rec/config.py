@@ -33,6 +33,15 @@ class Config:
     segment_seconds: int = 900  # un fichier toutes les 15 min (reste < 4 Gio)
     min_free_gb: float = 2.0  # refuse de démarrer sous ce seuil, arrête si le seuil est franchi
     arecord_bin: str = "arecord"
+    aplay_bin: str = "aplay"
+    # Métronome (retour USB de l'XR18) : voir click.py. La voie du clic doit avoir pour source « USB n » sur la console.
+    click_bpm: int = 100
+    click_beats: int = 4  # temps par mesure (le temps 1 est accentué si click_accent)
+    click_accent: bool = True
+    click_sound: str = "bois"
+    click_channel: int = 16  # voie de retour USB (1-based)
+    click_level_db: float = -6.0  # crête du clic, en dB pleine échelle
+    click_with_rec: bool = False  # démarre le clic avec REC (et l'arrête avec la prise)
     host: str = "0.0.0.0"
     port: int = 8080
     # Adresse IP de l'XR18 pour lire noms/couleurs des voies (OSC) ; vide = désactivé.
@@ -87,6 +96,19 @@ class Config:
             raise ValueError("mix_buses : entiers de 1 à 6")
         if not -90 <= self.mix_max_db <= 10:
             raise ValueError("mix_max_db hors de -90..10")
+        if not (isinstance(self.click_bpm, int) and not isinstance(self.click_bpm, bool) and 30 <= self.click_bpm <= 240):
+            raise ValueError("click_bpm : entier de 30 à 240")
+        if not (isinstance(self.click_beats, int) and not isinstance(self.click_beats, bool) and 1 <= self.click_beats <= 12):
+            raise ValueError("click_beats : entier de 1 à 12")
+        if not isinstance(self.click_accent, bool) or not isinstance(self.click_with_rec, bool):
+            raise ValueError("click_accent et click_with_rec : vrai ou faux")
+        if self.click_sound not in ("bois", "cloche", "bip", "tic"):
+            raise ValueError("click_sound : bois, cloche, bip ou tic")
+        if not (isinstance(self.click_channel, int) and not isinstance(self.click_channel, bool)
+                and 1 <= self.click_channel <= 64):
+            raise ValueError("click_channel : une voie entre 1 et 64")
+        if not (isinstance(self.click_level_db, (int, float)) and -40 <= self.click_level_db <= 0):
+            raise ValueError("click_level_db hors de -40..0")
         if self.panel not in ("auto", "on", "off"):
             raise ValueError("panel : auto, on ou off")
         if self.panel_driver not in ("ssd1306", "sh1106"):
@@ -122,7 +144,8 @@ def load(path: str | None = None) -> Config:
 
 # Réglages modifiables depuis l'interface (les autres exigent de modifier le fichier de configuration).
 EDITABLE = ("xr18_host", "device", "rate", "format", "channels", "segment_seconds", "min_free_gb",
-            "mix_max_db", "mix_buses")
+            "mix_max_db", "mix_buses", "click_bpm", "click_beats", "click_accent", "click_sound", "click_channel",
+            "click_level_db", "click_with_rec")
 AUDIO_KEYS = ("device", "rate", "format", "channels", "segment_seconds")  # figés pendant un enregistrement
 
 

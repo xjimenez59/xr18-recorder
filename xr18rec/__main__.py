@@ -48,6 +48,7 @@ def cmd_serve(args) -> int:
         pass
     finally:
         stop_panel.set()
+        app.click.stop()
         if app.mixer:
             app.mixer.close()
         rec.shutdown()  # finalise proprement les WAV en cours

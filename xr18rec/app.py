@@ -6,12 +6,15 @@ import dataclasses
 from typing import Callable
 
 from . import config as config_mod
+from .click import Metronome
 from .mixer import MixerClient
 from .session import Recorder, RecorderError
 from .updates import UpdateService
 
 _TYPES = {"xr18_host": str, "device": str, "rate": int, "format": str, "channels": int,
-          "segment_seconds": int, "min_free_gb": float, "mix_max_db": float, "mix_buses": list}
+          "segment_seconds": int, "min_free_gb": float, "mix_max_db": float, "mix_buses": list,
+          "click_bpm": int, "click_beats": int, "click_accent": bool, "click_sound": str, "click_channel": int,
+          "click_level_db": float, "click_with_rec": bool}
 
 
 class App:
@@ -19,6 +22,8 @@ class App:
                  base_path: str | None = None, restart: Callable[[], None] | None = None):
         self.cfg, self.rec, self.mixer = cfg, rec, mixer
         self.updates = UpdateService(cfg, rec)
+        self.click = Metronome(cfg, rec)
+        rec.on_started = self.click.on_rec_started
         self.base_path = base_path  # fichier de configuration de base (pour « revenir aux réglages d'origine »)
         self.restart = restart
 
@@ -37,6 +42,10 @@ class App:
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(f"{key} : nombre attendu")
             return float(value)
+        if want is bool:
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} : vrai ou faux attendu")
+            return value
         if want is int:
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"{key} : entier attendu")

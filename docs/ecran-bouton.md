@@ -86,7 +86,7 @@ Pièges rencontrés : **pas de `Conflicts=` entre les deux services** (systemd e
 
 ## Ce qui n'est pas validé
 
-Comportement du bouton et de l'anneau pendant une vraie prise, orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
+**Validé le 19/11/2026 avec l'XR18** : « PAS D'XR18 » disparaît au branchement USB, arrêt par appui long pendant une prise, démarrage, enregistrement, anneau allumé pendant la prise. Reste : orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.
 
 ## Polices
 

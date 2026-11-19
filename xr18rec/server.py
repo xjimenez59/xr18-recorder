@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import audio, playback, qr, reaper, system, xr18osc
 from .app import App
+from .click import ClickError
 from .updater import UpdateError
 from .ziputil import ZipStream
 from .mixer import MixError, MixerClient
@@ -242,6 +243,8 @@ def make_handler(rec: Recorder, app: App):
                 return self._json(app.settings())
             if path == "/api/update":
                 return self._json(app.updates.status())
+            if path == "/api/click":
+                return self._json(app.click.status())
             if path == "/api/audio":
                 return self._json(audio.probe(rec.cfg, rec.is_recording()))
             if path == "/api/system":
@@ -305,6 +308,15 @@ def make_handler(rec: Recorder, app: App):
                 return self._mix_call(lambda: app.mixer.set_mute(str(body.get("target")), bool(body.get("muted"))))
             if path == "/api/settings":
                 return self._app_call(lambda: app.apply(self._body()))
+            if path == "/api/click/start":
+                if audio.device_present(rec.cfg.device) is False:
+                    return self._json({"error": "XR18 non branché : le clic passe par son retour USB"}, 409)
+                try:
+                    return self._json(app.click.start())
+                except ClickError as exc:
+                    return self._json({"error": str(exc)}, 409)
+            if path == "/api/click/stop":
+                return self._json(app.click.stop())
             if path == "/api/levels/monitor":
                 try:
                     on = bool(self._body().get("on"))

@@ -71,3 +71,14 @@ a.btn.disabled { opacity:.35; pointer-events:none; }
 .health dt { color:var(--muted); } .health dd { margin:0; font-weight:600; }
 .ok-text { color:var(--ok); } .warn-text { color:#f59e0b; } .err-text { color:var(--rec); }
 [hidden] { display:none !important; }  /* l'attribut hidden doit l'emporter sur display:flex / inline-block */
+/* métronome */
+.clk { display:grid; gap:10px; margin-top:10px; }
+.clk label { display:flex; align-items:center; gap:10px; }
+.clk .field { display:grid; grid-template-columns:7.5rem 1fr; align-items:center; gap:10px; }
+.clk .bpmrow { display:flex; align-items:center; gap:8px; }
+.clk .bpmrow input { width:5.5rem; text-align:center; font-size:1.4rem; font-weight:700; padding:8px; border-radius:8px; border:1px solid #8884; background:transparent; color:inherit; }
+.clk .bpmrow button { min-width:48px; padding:10px 0; font-size:1.3rem; }
+.clk input[type=range] { width:100%; }
+.clk input[type=checkbox] { width:1.3rem; height:1.3rem; flex:none; }
+.clkbtn { min-width:132px; min-height:48px; }
+.clkbtn.on { background:var(--ok); }

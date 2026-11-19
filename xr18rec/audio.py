@@ -6,6 +6,7 @@ s'y accorder. Ces fonctions interrogent ALSA pour vérifier que le réglage du P
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
@@ -82,25 +83,47 @@ def probe(cfg, recording: bool, run=subprocess.run) -> dict:
     return result
 
 
+_DEVICE = re.compile(r"(?:plug)?hw:(?:CARD=)?([^,]+)(?:,(?:DEV=)?(\d+))?")
+
+
+def _card(device: str):
+    """(index de carte ALSA, nom, n° de périphérique, lisible) ; None si `device` n'est pas de la forme hw:CARD=nom,DEV=n.
+
+    L'index est None si la carte n'est pas (ou n'est plus) listée ; `lisible` est False si /proc/asound/cards ne se lit pas."""
+    m = _DEVICE.fullmatch(device)
+    if not m:
+        return None
+    name, dev = m.group(1), int(m.group(2) or 0)
+    if name.isdigit():
+        return (int(name) if os.path.isdir(f"{ASOUND}/card{name}") else None), name, dev, True
+    try:
+        with open(f"{ASOUND}/cards", encoding="utf-8") as f:
+            for card in re.finditer(r"^\s*(\d+) \[(\S+)\s*\]", f.read(), re.M):
+                if card.group(2) == name:
+                    return int(card.group(1)), name, dev, True
+    except OSError:
+        return None, name, dev, False
+    return None, name, dev, True
+
+
+def device_present(device: str) -> bool | None:
+    """True si la carte son `device` (l'XR18 branché en USB) est vue par ALSA, False si elle est absente, None si on ne sait pas.
+
+    Lecture de /proc/asound/cards : aucun programme lancé, aucun accès à la carte (elle reste libre pour arecord)."""
+    found = _card(device)
+    if found is None or not found[3]:
+        return None
+    return found[0] is not None
+
+
 def capture_busy(device: str) -> bool | None:
     """True si la capture de `device` est ouverte par un programme, False si elle est libre, None si on ne sait pas.
 
     Lit l'état ALSA (`/proc/asound/cardN/pcmDc/sub0/status` vaut « closed » quand la carte est libre)."""
-    m = re.fullmatch(r"(?:plug)?hw:(?:CARD=)?([^,]+)(?:,(?:DEV=)?(\d+))?", device)
-    if not m:
+    found = _card(device)
+    if found is None or found[0] is None:
         return None
-    name, dev = m.group(1), int(m.group(2) or 0)
-    index = int(name) if name.isdigit() else None
-    if index is None:
-        try:
-            with open(f"{ASOUND}/cards", encoding="utf-8") as f:
-                for card in re.finditer(r"^\s*(\d+) \[(\S+)\s*\]", f.read(), re.M):
-                    if card.group(2) == name:
-                        index = int(card.group(1))
-        except OSError:
-            return None
-    if index is None:
-        return None
+    index, _, dev, _ = found
     try:
         with open(f"{ASOUND}/card{index}/pcm{dev}c/sub0/status", encoding="utf-8") as f:
             return not f.read().strip().startswith("closed")

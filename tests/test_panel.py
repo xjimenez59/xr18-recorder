@@ -191,6 +191,17 @@ class RenderTests(unittest.TestCase):
         c = self.render({**STATUS_REC, "state": "error", "alerts": [alert]}, 0.0)
         self.assertTrue(any(c.buf))
 
+    def test_missing_xr18_replaces_ready(self):
+        idle = {**STATUS_REC, "state": "idle", "elapsed_s": 0, "alerts": []}
+        ready = self.render({**idle, "xr18_usb": True}, 0.0)
+        unknown = self.render({**idle, "xr18_usb": None}, 0.0)
+        absent = self.render({**idle, "xr18_usb": False}, 0.0)
+        self.assertEqual(ready.buf, unknown.buf)  # inconnu : on ne prétend rien
+        self.assertNotEqual(ready.buf, absent.buf)
+        self.assertNotEqual(panel.frame_key({**idle, "xr18_usb": True}, 0.0, ("a", "b")), panel.frame_key({**idle, "xr18_usb": False}, 0.0, ("a", "b")))
+        err = self.render({**idle, "state": "error", "xr18_usb": False}, 0.0)
+        self.assertNotEqual(err.buf, absent.buf)  # l'erreur garde la priorité
+
     def test_overlay_draws_progress(self):
         base = self.render(STATUS_REC)
         c = self.render(STATUS_REC, overlay=("Maintenir : ARRET", 0.5))

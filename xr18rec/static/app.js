@@ -14,7 +14,11 @@ async function api(path, body) {
 // Éléments d'état facultatifs (présents selon la page) : state, session, elapsed, free, overruns, cfg, error
 function renderStatus(s) {
   const st = $('state');
-  if (st) { st.textContent = {recording:'Enregistrement', idle:'Prêt', error:'Erreur'}[s.state] || s.state; st.className = 'state ' + s.state; }
+  if (st) {
+    const noUsb = s.state === 'idle' && s.xr18_usb === false;  // XR18 non vu par la carte son du Pi
+    st.textContent = noUsb ? 'XR18 non branché' : ({recording:'Enregistrement', idle:'Prêt', error:'Erreur'}[s.state] || s.state);
+    st.className = 'state ' + (noUsb ? 'error' : s.state);
+  }
   const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
   set('session', s.session || '');
   set('elapsed', fmt(s.elapsed_s));

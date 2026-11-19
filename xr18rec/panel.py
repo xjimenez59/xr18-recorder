@@ -166,7 +166,7 @@ def frame_key(st: dict | None, now: float, net: tuple[str, str], overlay=None) -
     alerts = st.get("alerts") or []
     shown = short_alert(alerts[int(now / 3) % len(alerts)], st) if alerts else None
     fraction = None if not overlay or overlay[1] is None else round(overlay[1], 2)
-    return (st.get("state"), st.get("session"), fmt_clock(st.get("elapsed_s", 0)), fmt_remaining(st.get("remaining_s")),
+    return (st.get("state"), st.get("xr18_usb"), st.get("session"), fmt_clock(st.get("elapsed_s", 0)), fmt_remaining(st.get("remaining_s")),
             (st.get("storage") or {}).get("kind"), st.get("version"), shown,
             int(now * 2) % 2, int(now / 3) % 3, overlay[0] if overlay else None, fraction, net)
 
@@ -198,11 +198,17 @@ def render(c: oled.Canvas, st: dict | None, now: float, net: tuple[str, str], ov
             c.text(0, 0, "XR18 REC")
             version = "v" + str(st.get("version", ""))
             c.text(oled.WIDTH - c.text_width(version), 0, version)
-        c.centered(15, "ERREUR" if st.get("state") == "error" else "PRÊT", "16x32")
+        no_usb = st.get("state") != "error" and st.get("xr18_usb") is False  # None = on ne sait pas : on ne l'affirme pas
+        if st.get("state") == "error":
+            c.centered(15, "ERREUR", "16x32")
+        elif no_usb:
+            c.centered(19, "PAS D'XR18", "12x24")  # 10 caractères : la largeur maximale de cette police
+        else:
+            c.centered(15, "PRÊT", "16x32")
         # ligne du bas : temps restant et stockage, puis l'adresse du Pi, puis son nom, à tour de rôle (3 s chacun)
         phase = int(now / 3) % 3
-        if st.get("state") == "error" and alert_text and "INTROUVABLE" in alert_text:
-            c.centered(52, "Verifier cable USB")
+        if (st.get("state") == "error" and alert_text and "INTROUVABLE" in alert_text) or (no_usb and phase == 0):
+            c.centered(52, "Brancher l'USB")
         elif phase == 0:
             c.text(0, 52, reste)
             c.text(oled.WIDTH - c.text_width(where), 52, where)

@@ -120,6 +120,7 @@ class Recorder:
                 "actual": self._actual_format(),
                 "levels": self._levels_summary(),
                 "alerts": self._alerts(),
+                "xr18_usb": audio.device_present(self.cfg.device),  # False = XR18 non vu par ALSA (câble, console éteinte)
                 "version": system.version(),
                 "stderr_tail": list(self._stderr_tail),
                 "config": {

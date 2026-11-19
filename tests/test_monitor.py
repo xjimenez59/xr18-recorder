@@ -73,6 +73,38 @@ class CaptureBusyTests(unittest.TestCase):
                 audio.ASOUND = old
 
 
+class DevicePresentTests(unittest.TestCase):
+    def test_xr18_seen_by_alsa(self):
+        old = audio.ASOUND
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                audio.ASOUND = tmp
+                self.assertIsNone(audio.device_present("hw:CARD=XR18,DEV=0"))  # /proc/asound/cards illisible : on ne sait pas
+                open(os.path.join(tmp, "cards"), "w").write(" 0 [Headphones     ]: bcm2835 - bcm2835\n")
+                self.assertIs(audio.device_present("hw:CARD=XR18,DEV=0"), False)  # carte absente : câble ou console éteinte
+                self.assertIs(audio.device_present("hw:1,0"), False)
+                open(os.path.join(tmp, "cards"), "a").write(" 1 [XR18           ]: USB-Audio - XR18\n")
+                os.makedirs(os.path.join(tmp, "card1"))
+                self.assertIs(audio.device_present("hw:CARD=XR18,DEV=0"), True)
+                self.assertIs(audio.device_present("hw:1,0"), True)
+                self.assertIsNone(audio.device_present("default"))  # forme inconnue : on ne l'affirme pas
+        finally:
+            audio.ASOUND = old
+
+    def test_status_reports_it(self):
+        from test_recorder import make_cfg
+        from xr18rec.session import Recorder
+        with tempfile.TemporaryDirectory() as tmp:
+            old = audio.ASOUND
+            audio.ASOUND = tmp
+            try:
+                open(os.path.join(tmp, "cards"), "w").write(" 0 [Headphones     ]: bcm2835 - bcm2835\n")
+                rec = Recorder(make_cfg(tmp))
+                self.assertIs(rec.status()["xr18_usb"], False)
+            finally:
+                audio.ASOUND = old
+
+
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

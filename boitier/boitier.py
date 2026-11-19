@@ -9,7 +9,7 @@ dans des écrous emprisonnés (plots d'angle de 3 couches). Stdlib uniquement.
 
 Repère : toutes les cotes en mm. Les « cotes intérieures » L x W x H sont celles de la
 cavité entre les parois ; le fond et le couvercle sont posés *sur* les parois.
-Rouge = découpe, aucune gravure. Voir docs/boitier.md.
+Rouge = découpe ; bleu = gravure (repère de la petite carte sur le fond, étiquettes sur le couvercle). Voir docs/boitier.md.
 """
 import argparse
 import math
@@ -45,10 +45,16 @@ ECRAN_FENETRE_DECALAGE = (0.0, 0.0)   # décalage de la fenêtre par rapport au 
 ECRAN_TROUS = (64.0, 42.0)     # entraxe des trous du module (À MESURER)
 ECRAN_TROU_D = 2.3             # vis M2
 
+# Petite carte (transistor + résistances + broches), posée au fond à l'avant gauche : repère gravé
+CARTE_L, CARTE_W = 30.0, 20.0
+CARTE_X, CARTE_Y = 1.0, 5.0    # coin avant gauche, repère intérieur (hors de l'emprise du bouton : y < 26)
+CARTE_TROUS = None             # ex. ((3, 3), (27, 17)) : trous Ø2,2 si l'on veut visser la carte (entraxe à mesurer)
+
 FEUILLE_L = 400.0              # largeur utile (xTool D1 Pro : 430 x 390)
 ESPACE = 4.0
 
 ROUGE = "#ff0000"
+BLEU = "#0000ff"      # gravure (repères, sans découpe)
 
 
 # ------------------------------------------------------------------ géométrie
@@ -112,6 +118,23 @@ def hexagone(cx, cy, plats):
             for i in range(6)]
 
 
+def texte(txt, cx, cy, hauteur):
+    """Contours d'un texte (DejaVu Sans Bold, via matplotlib) centré en (cx, cy), `hauteur` = hauteur des capitales (mm).
+    Liste de polygones (les trous des lettres sont des polygones de sens inverse : remplissage evenodd).
+    Sans matplotlib, retourne [] (les étiquettes sont alors omises)."""
+    try:
+        from matplotlib.textpath import TextPath
+        from matplotlib.font_manager import FontProperties
+    except ImportError:
+        return []
+    tp = TextPath((0, 0), txt, size=10, prop=FontProperties(family="DejaVu Sans", weight="bold"))
+    ref = TextPath((0, 0), "H", size=10, prop=FontProperties(family="DejaVu Sans", weight="bold")).get_extents()
+    bb = tp.get_extents()
+    k = hauteur / ref.height
+    mx, my = (bb.x0 + bb.x1) / 2, (ref.y0 + ref.y1) / 2
+    return [[(cx + (x - mx) * k, cy + (y - my) * k) for x, y in poly] for poly in tp.to_polygons(closed_only=True)]
+
+
 def paroi_doigts(largeur, hauteur, doigts_pairs, n=None):
     """Paroi à queues droites sur ses deux bords verticaux.
     doigts_pairs=True : les segments pairs (0, 2, ...) avancent jusqu'au bord ;
@@ -144,7 +167,10 @@ def pieces():
     trous = [("c", T + PI_X0 + x, T + PI_Y0 + y, PI_TROU_D / 2) for x, y in PI_TROUS]
     fentes = [slot(T + 62 + j * 6, T + cy, 2.5, 15) for j in range(6) for cy in (W / 2 - 10, W / 2 + 10)]
     # pas d'accès à la carte micro-SD : mises à jour en OTA ; ouvrir le couvercle si besoin
-    P["fond"] = dict(contour=rect(0, 0, Ex, Ey), trous=trous + fentes, n=1)
+    grav = [rect(T + CARTE_X, T + CARTE_Y, T + CARTE_X + CARTE_L, T + CARTE_Y + CARTE_W)]   # repère de la carte
+    if CARTE_TROUS:
+        trous += [("c", T + CARTE_X + x, T + CARTE_Y + y, 1.1) for x, y in CARTE_TROUS]
+    P["fond"] = dict(contour=rect(0, 0, Ex, Ey), trous=trous + fentes, gravure=grav, n=1)
 
     # Couvercle : 4 vis M3, bouton, fenêtre et 4 vis M2 de l'écran
     cl = []
@@ -159,7 +185,9 @@ def pieces():
     for sx in (-1, 1):
         for sy in (-1, 1):
             cl.append(("c", ex_c + sx * ECRAN_TROUS[0] / 2, cy_mid + sy * ECRAN_TROUS[1] / 2, ECRAN_TROU_D / 2))
-    P["couvercle"] = dict(contour=rect(0, 0, Ex, Ey), trous=cl, n=1)
+    # Étiquettes gravées : « REC » sous le bouton, nom du projet sous l'écran (lisibles depuis l'avant du boîtier)
+    etiq = texte("REC", T + BOUTON_X, T + W / 2 - 16.0, 5.0) + texte("XR18 REC", ex_c, T + 6.5, 5.0)
+    P["couvercle"] = dict(contour=rect(0, 0, Ex, Ey), trous=cl, texte=etiq, n=1)
 
     # Murs avant/arrière : largeur Ex, doigts sur les segments pairs
     pwr_u = T + PI_X0 + 10.6
@@ -225,6 +253,9 @@ def ecrire_svg(P, chemin, kerf):
     items = []
     for nom, p in P.items():
         contour, trous = _compense(p, kerf)
+        trous = trous + [("g", q) for q in p.get("gravure", [])]
+        if p.get("texte"):
+            trous.append(("t", p["texte"]))
         x0, y0, x1, y1 = _bbox(contour)
         for k in range(p["n"]):
             items.append((nom if p["n"] == 1 else "%s_%d" % (nom, k + 1), contour, trous, x0, y0, x1 - x0, y1 - y0))
@@ -254,7 +285,12 @@ def ecrire_svg(P, chemin, kerf):
 
         out.append('<path d="M %s Z"/>' % " L ".join(pt(*q) for q in contour))
         for t in trous:
-            if isinstance(t, tuple) and t[0] == "c":
+            if isinstance(t, tuple) and t[0] == "t":      # texte gravé : surface pleine (evenodd pour les trous des lettres)
+                d = " ".join("M %s Z" % " L ".join(pt(*q) for q in poly) for poly in t[1])
+                out.append('<path fill="%s" stroke="none" fill-rule="evenodd" d="%s"/>' % (BLEU, d))
+            elif isinstance(t, tuple) and t[0] == "g":      # gravure : couleur distincte, pas de compensation
+                out.append('<path stroke="%s" d="M %s Z"/>' % (BLEU, " L ".join(pt(*q) for q in t[1])))
+            elif isinstance(t, tuple) and t[0] == "c":
                 out.append('<circle cx="%.3f" cy="%.3f" r="%.3f"/>' % (t[1] + dx, dy + (by1 + by0) - t[2], t[3]))
             else:
                 out.append('<path d="M %s Z"/>' % " L ".join(pt(*q) for q in t))

@@ -113,6 +113,16 @@ def dessiner(ax, vue, accessoires):
         else:
             ax.add_patch(Polygon([vue.p(x, y, zt) for x, y in t], closed=True, fc="#1b1410", ec="#000", lw=0.5, zorder=3))
 
+    # étiquettes gravées (brun foncé) : un seul tracé composé, trous des lettres par le sens des contours
+    from matplotlib.path import Path
+    verts, codes = [], []
+    for poly in P["couvercle"].get("texte", []):
+        pts = [vue.p(x, y, zt) for x, y in poly]
+        verts += pts + [pts[0]]
+        codes += [Path.MOVETO] + [Path.LINETO] * (len(pts) - 1) + [Path.CLOSEPOLY]
+    if verts:
+        ax.add_patch(PathPatch(Path(verts, codes), fc="#7a5326", ec="none", zorder=3.5))
+
     if not accessoires:
         return
 
@@ -154,6 +164,45 @@ def dessiner(ax, vue, accessoires):
     ax.add_patch(Polygon(cercle(vue, bx, by, zt + 4.5, 6.2), closed=True, fc="#e25555", ec="#600", lw=0.6, zorder=4.6))
 
 
+def plan(sortie):
+    """Vue de dessus, couvercle ôté : Pi, carte, empreintes du bouton et de l'écran (en pointillés), plots."""
+    from matplotlib.patches import Rectangle, Circle
+    T, L, W = B.T, B.L, B.W
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.add_patch(Rectangle((0, 0), B.Ex, B.Ey, fc=BOIS_CL, ec=TRANCHE, lw=1.5))
+    ax.add_patch(Rectangle((T, T), L, W, fc="#f3e3c8", ec=TRANCHE, lw=0.8))
+    for cx in (T, B.Ex - T - B.PLOT):                                  # plots d'angle
+        for cy in (T, B.Ey - T - B.PLOT):
+            ax.add_patch(Rectangle((cx, cy), B.PLOT, B.PLOT, fc=BOIS_FONCE, ec=TRANCHE, alpha=0.6))
+            ax.add_patch(Circle((cx + B.PLOT / 2, cy + B.PLOT / 2), 1.7, fc="white", ec="#333", lw=0.5))
+    x0, y0 = T + B.PI_X0, T + B.PI_Y0                                   # Pi 2 B
+    ax.add_patch(Rectangle((x0, y0), B.PI_L, B.PI_W, fc="#2f7d4f", ec="#123", lw=1, alpha=0.85))
+    for hx, hy in B.PI_TROUS:
+        ax.add_patch(Circle((x0 + hx, y0 + hy), 2.6, fc="#d0a040", ec="#333", lw=0.6))
+    ax.add_patch(Rectangle((x0 + B.PI_L - 21, y0 + 2), 21, 17.5, fc="#aab", ec="#333", lw=0.6))   # Ethernet
+    for yy in (29, 47):
+        ax.add_patch(Rectangle((x0 + B.PI_L - 17, y0 + yy - 6.5), 17, 13, fc="#aab", ec="#333", lw=0.6))
+    ax.add_patch(Rectangle((x0 + 7, y0 + 50), 51, 5, fc="#222", ec="#000", lw=0.6))                 # GPIO
+    ax.text(x0 + 32, y0 + 52.5, "GPIO", color="white", ha="center", va="center", fontsize=7)
+    ax.text(x0 + 33, y0 + 20, "Raspberry Pi 2 B", color="white", ha="center", fontsize=10)
+    ax.add_patch(Rectangle((T + B.CARTE_X, T + B.CARTE_Y), B.CARTE_L, B.CARTE_W, fc="#c9a24a", ec="#553", lw=1))
+    ax.text(T + B.CARTE_X + B.CARTE_L / 2, T + B.CARTE_Y + B.CARTE_W / 2, "carte transistor\n%.0f x %.0f" % (B.CARTE_L, B.CARTE_W),
+            ha="center", va="center", fontsize=8)
+    cy = B.Ey / 2                                                       # empreintes du couvercle (pointillés)
+    ax.add_patch(Circle((T + B.BOUTON_X, cy), 11, fill=False, ec="#c82020", ls="--", lw=1.2))
+    ax.text(T + B.BOUTON_X, cy, "bouton\nz > 13", ha="center", va="center", fontsize=8, color="#c82020")
+    ax.add_patch(Rectangle((T + B.ECRAN_X, cy - B.ECRAN_H / 2), B.ECRAN_L, B.ECRAN_H, fill=False, ec="#1565c0", ls="--", lw=1.2))
+    ax.text(T + B.ECRAN_X + B.ECRAN_L / 2, cy + B.ECRAN_H / 2 - 4, "écran : dos à z ~ 34", ha="center", fontsize=8, color="#1565c0")
+    ax.text(B.Ex - 3, y0 + 29, "USB / Ethernet", rotation=90, ha="center", va="center", fontsize=8)
+    ax.text(T + 50, 1.2, "alimentation (mur avant)", ha="center", va="center", fontsize=7)
+    ax.set_xlim(-4, B.Ex + 4); ax.set_ylim(-4, B.Ey + 4); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_title("Vue de dessus, couvercle ôté (mm) - avant en bas, USB/Ethernet à droite ; plots d'angle en haut (z 29-38), au-dessus du fond")
+    fig.tight_layout()
+    fig.savefig(os.path.join(sortie, "apercu-plan.png"), dpi=110, facecolor="white")
+    plt.close(fig)
+    print("apercu-plan.png")
+
+
 def main():
     sortie = os.path.dirname(os.path.abspath(__file__))
     for accessoires, nom in ((False, "apercu-sans-accessoires.png"), (True, "apercu-avec-accessoires.png")):
@@ -171,6 +220,7 @@ def main():
         fig.savefig(os.path.join(sortie, nom), dpi=110, facecolor="white")
         plt.close(fig)
         print(nom)
+    plan(sortie)
 
 
 if __name__ == "__main__":

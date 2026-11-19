@@ -27,5 +27,12 @@ Prises USB à gros surmoulage : une fiche de plus de 15 mm de large ne passera p
 ## Quincaillerie
 4 vis M3×10 + 4 écrous M3 ; 4 vis M2,5×10 + 4 entretoises M2,5×6 + 4 vis M2,5×6 ; 4 vis M2×8 + 4 écrous M2 + 4 entretoises M2 ; 1 bouton Ø16 à anneau rouge ; 4 pieds adhésifs (facultatifs).
 
+## Câblage interne et petite carte
+Fils Dupont droits : l'écran (dos de la carte vers z ≈ 34 mm, embouts vers z ≈ 17-20) et le connecteur GPIO du Pi (embouts vers z ≈ 30) tiennent sous le couvercle ; broches à 90° inutiles tant que le connecteur mesure moins de ~25 mm. Fils de 15 cm minimum. La carte du transistor (30 × 20 mm) se pose au fond à l'avant gauche (repère **gravé en bleu** sur le fond, `CARTE_*` dans `boitier.py` ; fixation par mousse double face, ou `CARTE_TROUS` si l'on veut la visser) : cette zone est hors de l'emprise du bouton (corps à z > 13 mm, y 26-48).
+
+## Gravures (bleu dans `boitier.svg`, à régler à part de la découpe)
+- Fond : contour de 30 × 20 mm repérant la carte du transistor (face **intérieure** vers le haut pour graver).
+- Couvercle : « REC » sous le bouton et « XR18 REC » sous l'écran, capitales de 5 mm, lisibles depuis l'avant (face extérieure vers le haut). Texte plein (remplissage) ; contours générés avec matplotlib (DejaVu Sans Bold), omis si matplotlib est absent.
+
 ## Aperçu
-`py boitier/rendu.py` (nécessite matplotlib, uniquement pour ce rendu) produit `apercu-sans-accessoires.png` et `apercu-avec-accessoires.png` (vues avant-droite et arrière-gauche).
+`py boitier/rendu.py` (nécessite matplotlib, uniquement pour ce rendu) produit `apercu-sans-accessoires.png` et `apercu-avec-accessoires.png` (vues avant-droite et arrière-gauche) et `apercu-plan.png` (vue de dessus, couvercle ôté : Pi, carte, empreintes du bouton et de l'écran).

@@ -1,0 +1,24 @@
+[Unit]
+Description=XR18 : écran « Démarrage » et anneau pendant l'allumage
+# Très tôt : n'attend ni le réseau, ni les montages, ni l'application. xr18rec.service l'arrête en démarrant
+# (ExecStartPre), la face avant prend le relais. Pas de Conflicts= entre les deux : systemd en abandonne un au hasard.
+DefaultDependencies=no
+After=systemd-modules-load.service
+Conflicts=shutdown.target
+ConditionPathExists=/opt/xr18rec/current
+
+[Service]
+Type=simple
+User=xr18rec
+Group=xr18rec
+SupplementaryGroups=i2c gpio
+WorkingDirectory=/opt/xr18rec/current
+ExecStartPre=-+/usr/sbin/modprobe i2c-dev
+ExecStart=/usr/bin/python3 -m xr18rec panel --boot --config /etc/xr18rec.json
+Nice=10
+KillSignal=SIGTERM
+TimeoutStopSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=sysinit.target

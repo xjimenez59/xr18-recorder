@@ -59,6 +59,10 @@ def cmd_panel(args) -> int:
     from . import panel
     cfg = config_mod.load(args.config)
     config_mod.apply_overlay(cfg)
+    if args.boot:
+        stop = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: stop.set())
+        return panel.run_boot(cfg, stop)
     if args.preview:
         return panel_preview(args.preview)
     if args.simulate:
@@ -214,6 +218,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("panel", help="face avant (écran OLED, bouton, LED) ; lancé automatiquement par serve")
     s.add_argument("--config")
     s.add_argument("--preview", metavar="SCENARIO", help="affiche un écran en texte : repos, enregistrement, debut, longue, alerte")
+    s.add_argument("--boot", action="store_true", help="écran « Démarrage... » et LED clignotante pendant l'allumage (service xr18rec-boot)")
     s.add_argument("--simulate", action="store_true", help="simulateur dans le navigateur (écran, bouton, LED), sans matériel")
     s.add_argument("--sim-port", type=int, default=8100, help="port du simulateur (défaut 8100)")
     s.set_defaults(fn=cmd_panel)

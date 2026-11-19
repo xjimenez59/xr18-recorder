@@ -75,6 +75,15 @@ Diagnostic sans `i2c-tools` : balayage par `ioctl(I2C_SLAVE)` + `write`/`read` s
 - **Anneau** : 5 V (broche 4) → 220 Ω → fil rouge ; fil noir → collecteur d'un **BC547** (face plate vers soi : C, B, E) ; émetteur → masse (broche 14) ; base → 1 kΩ → GPIO27 (broche 13). Validé par un clignotement forcé (`sudo pinctrl set 27 op dh|dl`) ; le service réécrit GPIO27 chaque seconde, `pinctrl` ne tient donc qu'un instant (clignoter en boucle, ou arrêter le service).
 - Pas encore vu avec une vraie prise (anneau fixe, clignotement d'alerte), ni arrêt (2 s) ni extinction (5 s).
 
+## Signe de vie pendant l'allumage (19/11/2026)
+
+Le Pi 2 B met ~45 s à démarrer (noyau 7 s, système 38 s) : sans rien, écran et anneau resteraient noirs tout ce temps. Deux étages :
+
+1. **Anneau allumé par le firmware** : `gpio=27=op,dh` dans `config.txt` (posé par `image/customize.sh`) met GPIO27 à l'état haut dès la mise sous tension, avant tout logiciel. Si `panel_led_rec_gpio` change, changer aussi cette ligne.
+2. **Service précoce `xr18rec-boot.service`** (`xr18rec panel --boot`, `panel.run_boot`) : lancé dès `systemd-modules-load` (≈ 15 s après la mise sous tension, sans attendre réseau ni montages), affiche « XR18 REC / Démarrage... » (points animés) et fait clignoter l'anneau à 1 Hz. `xr18rec.service` l'arrête par `ExecStartPre=-+systemctl stop --no-block xr18rec-boot` : la face avant normale prend le relais (« PRÊT », anneau éteint) vers 45 s. Mesure : écran à ≈ 19 s.
+
+Pièges rencontrés : **pas de `Conflicts=` entre les deux services** (systemd en abandonne un au hasard : l'application ne démarrait pas) ; la LED est demandée par `_LazyLed` avec une nouvelle tentative par seconde (à 18 s, `/dev/gpiochip0` n'a pas encore son groupe udev : « permission denied ») ; sur un Pi déjà installé, `systemctl enable xr18rec-boot` une fois (la mise à jour ne fait pas `enable`) et `gpio=27=op,dh` à ajouter à la main. **Toujours faire `sync` avant de couper l'alimentation après une modification** : des fichiers écrits juste avant la coupure sont revenus vides (service masqué, application non lancée).
+
 ## Ce qui n'est pas validé
 
 Comportement du bouton et de l'anneau pendant une vraie prise, orientation, structures GPIO (`gpio.py`, tailles testées mais pas l'appel noyau), lecture du bouton, charge sur le Pi 2 B, permissions des groupes `i2c`/`gpio` pour l'utilisateur du service.

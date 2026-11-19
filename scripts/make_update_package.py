@@ -20,7 +20,7 @@ import tempfile
 
 # fichiers système de l'image transmis avec chaque mise à jour : (dossier du dépôt, nom, type)
 SYSTEM_FILES = [
-    ("xr18rec.service", "systemd"), ("xr18rec-mount@.service", "systemd"), ("xr18rec-growfs.service", "systemd"),
+    ("xr18rec.service", "systemd"), ("xr18rec-boot.service", "systemd"), ("xr18rec-mount@.service", "systemd"), ("xr18rec-growfs.service", "systemd"),
     ("xr18rec-update.service", "systemd"), ("xr18rec-update.path", "systemd"),
     ("99-xr18rec-usb.rules", "udev"), ("98-xr18rec-panel.rules", "udev"), ("50-xr18rec.rules", "polkit"),
 ]

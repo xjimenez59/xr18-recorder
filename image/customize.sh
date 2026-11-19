@@ -56,6 +56,7 @@ install -d /media/xr18
 install -m 644 "$HERE/image/files/xr18rec.json" /etc/xr18rec.json
 install -m 644 "$HERE/image/files/xr18rec.service" /etc/systemd/system/xr18rec.service
 install -m 644 "$HERE/image/files/xr18rec-mount@.service" /etc/systemd/system/xr18rec-mount@.service
+install -m 644 "$HERE/image/files/xr18rec-boot.service" /etc/systemd/system/xr18rec-boot.service
 install -m 644 "$HERE/image/files/xr18rec-growfs.service" /etc/systemd/system/xr18rec-growfs.service
 install -m 644 "$HERE/image/files/xr18rec-update.service" /etc/systemd/system/xr18rec-update.service
 install -m 644 "$HERE/image/files/xr18rec-update.path" /etc/systemd/system/xr18rec-update.path
@@ -65,7 +66,7 @@ install -d /etc/polkit-1/rules.d
 install -m 644 "$HERE/image/files/50-xr18rec.rules" /etc/polkit-1/rules.d/50-xr18rec.rules
 install -d /etc/systemd/journald.conf.d
 install -m 644 "$HERE/image/files/journald-xr18rec.conf" /etc/systemd/journald.conf.d/xr18rec.conf
-systemctl enable xr18rec.service xr18rec-growfs.service xr18rec-update.path avahi-daemon.service
+systemctl enable xr18rec.service xr18rec-boot.service xr18rec-growfs.service xr18rec-update.path avahi-daemon.service
 
 # ---- partition de démarrage (visible depuis Windows) ---------------------------------------
 # Dans ce chroot, la partition de démarrage est montée sur /boot (c'est /boot/firmware au runtime).
@@ -77,6 +78,9 @@ sed -i 's/^dtparam=audio=on/dtparam=audio=off/' /boot/config.txt   # la carte so
 if grep -q '^#\?dtparam=i2c_arm=' /boot/config.txt; then sed -i 's/^#\?dtparam=i2c_arm=.*/dtparam=i2c_arm=on/' /boot/config.txt
 else printf 'dtparam=i2c_arm=on\n' >> /boot/config.txt; fi
 echo i2c-dev > /etc/modules-load.d/xr18rec-i2c.conf
+# Anneau (GPIO27 par défaut, panel_led_rec_gpio) allumé par le firmware dès la mise sous tension : signe de vie avant tout logiciel
+grep -q '^gpio=27=' /boot/config.txt || printf 'gpio=27=op,dh
+' >> /boot/config.txt
 
 # ---- système -------------------------------------------------------------------------------
 echo xr18rec > /etc/hostname
@@ -120,7 +124,7 @@ done
 
 # ---- vérifications -------------------------------------------------------------------------
 (cd "$APP/current" && python3 -m xr18rec config --config /etc/xr18rec.json >/dev/null)
-systemctl is-enabled xr18rec.service xr18rec-growfs.service xr18rec-update.path
+systemctl is-enabled xr18rec.service xr18rec-boot.service xr18rec-growfs.service xr18rec-update.path
 openssl version
 test -L "$APP/current" && test -f /etc/xr18rec/update-key.pub
 grep -E "[[:space:]]/[[:space:]]+ext4" /etc/fstab

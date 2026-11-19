@@ -10,6 +10,8 @@ SupplementaryGroups=audio video i2c gpio
 WorkingDirectory=/opt/xr18rec/current
 # En root (« + ») : copie les réglages déposés sur la partition de démarrage vers /etc après validation
 ExecStartPre=+/usr/bin/python3 -m xr18rec bootconfig
+# Écran d'attente de l'allumage (xr18rec-boot) : on l'arrête, la face avant normale le remplace (sans effet s'il n'existe pas)
+ExecStartPre=-+/usr/bin/systemctl stop --no-block xr18rec-boot.service
 # Face avant facultative (écran I²C) : le module du bus doit être chargé ; sans écran c'est sans effet
 ExecStartPre=-+/usr/sbin/modprobe i2c-dev
 ExecStart=/usr/bin/python3 -m xr18rec serve --config /etc/xr18rec.json

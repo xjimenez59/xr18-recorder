@@ -341,6 +341,76 @@ class BuildTests(unittest.TestCase):
         stop.set()
 
 
+class BootScreenTests(unittest.TestCase):
+    class Display:
+        def __init__(self):
+            self.frames = []
+
+        def show(self, canvas):
+            self.frames.append(bytes(canvas.buf))
+
+    def test_boot_frame_shows_title_and_animated_dots(self):
+        a, b = oled.Canvas(), oled.Canvas()
+        panel.boot_frame(a, 0.0)
+        panel.boot_frame(b, 0.5)
+        self.assertGreater(lit(a), 0)
+        self.assertNotEqual(a.buf, b.buf)  # les points avancent
+
+    def test_unplugged_application_uses_the_same_screen(self):
+        a, b = oled.Canvas(), oled.Canvas()
+        panel.render(a, None, 3.0, ("", ""))
+        panel.boot_frame(b, 3.0)
+        self.assertEqual(a.buf, b.buf)
+
+    def test_boot_blinks_the_led_then_turns_it_off(self):
+        display, states, stop = self.Display(), [], threading.Event()
+        calls = {"n": 0}
+
+        def led(on):
+            states.append(bool(on))
+
+        def clock():  # temps simulé : 0,25 s par appel
+            calls["n"] += 1
+            if calls["n"] > 20:
+                stop.set()
+            return calls["n"] * 0.25
+        self.assertEqual(panel.run_boot(config_mod.Config(), stop, display=display, set_led=led, clock=clock), 0)
+        self.assertIn(True, states[:-1])
+        self.assertIn(False, states[:-1])  # clignote
+        self.assertFalse(states[-1])  # éteinte à la sortie
+        self.assertTrue(display.frames)
+
+    def test_boot_led_retries_until_the_gpio_is_accessible(self):
+        calls, sets = {"n": 0}, []
+
+        class Lines:
+            def __init__(self, *a, **k):
+                calls["n"] += 1
+                if calls["n"] < 3:
+                    raise gpio.GpioError("permission denied")
+
+            def set(self, values):
+                sets.append(values)
+        now = {"t": 0.0}
+        real = gpio.Lines
+        gpio.Lines = Lines
+        try:
+            led = panel._LazyLed(27, lambda: now["t"])
+            for _ in range(5):
+                led(True)
+                now["t"] += 1.5
+        finally:
+            gpio.Lines = real
+        self.assertEqual(calls["n"], 3)  # deux refus, puis la ligne est obtenue
+        self.assertEqual(sets, [[1], [1], [1]])
+
+    def test_boot_without_hardware_exits_at_once(self):
+        stop = threading.Event()
+        stop.set()  # pas d'attente du bus
+        self.assertEqual(panel.run_boot(config_mod.Config(panel_i2c_bus=9, panel_led_rec_gpio=0), stop), 0)
+        self.assertEqual(panel.run_boot(config_mod.Config(panel="off")), 0)
+
+
 class ConfigTests(unittest.TestCase):
     def test_validation(self):
         config_mod.Config().validate()

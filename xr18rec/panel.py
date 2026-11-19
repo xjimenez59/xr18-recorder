@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 
 from . import gpio, oled
-from .bootscreen import boot_frame  # écran d'attente de l'allumage (module léger : voir bootscreen.py)
+from .bootscreen import boot_frame, shutdown_frame  # écran d'attente de l'allumage (module léger : voir bootscreen.py)
 
 STATUS_EVERY_S = 1.0
 DRAW_EVERY_S = 0.25
@@ -114,7 +114,7 @@ class ButtonLogic:
                 elif held >= self.POWER_HOLD:
                     action, self.fired = "poweroff", True
                 elif held >= self.POWER_SHOW:
-                    overlay = ("Maintenir : EXTINCTION", (held - self.POWER_SHOW) / (self.POWER_HOLD - self.POWER_SHOW))
+                    overlay = ("Maintenir : ÉTEINDRE", (held - self.POWER_SHOW) / (self.POWER_HOLD - self.POWER_SHOW))
         elif self.t0 is not None:
             if not self.fired and now - self.t0 < self.TAP_MAX:
                 action = "hint" if recording else "start"
@@ -248,6 +248,8 @@ class Panel:
         self._was_pressed = False
         self._swallow = False
         self._was_active = True
+        self._shutdown_until = 0.0
+        self._shutdown_drawn = False
         self.stop_event = threading.Event()
 
     # -- entrées
@@ -261,11 +263,13 @@ class Panel:
     def _say(self, now: float, text: str, seconds: float = NOTICE_S) -> None:
         self.notice = (text, None, now + seconds)
 
-    def _call(self, now: float, path: str, body: dict, failure: str) -> None:
+    def _call(self, now: float, path: str, body: dict, failure: str, on_failure=None) -> None:
         def go():
             try:
                 self.post(path, body)
             except Exception as exc:  # l'écran montre l'échec, il ne doit jamais interrompre la boucle
+                if on_failure:
+                    on_failure()
                 self._say(self.clock(), failure + " : " + str(exc)[:18], 4)
         threading.Thread(target=go, daemon=True).start()
 
@@ -275,14 +279,26 @@ class Panel:
         elif action == "stop":
             self._call(now, "/api/stop", {}, "Échec STOP")
         elif action == "poweroff":
-            self._say(now, "Extinction...", 30)
-            self._call(now, "/api/system/power", {"action": "poweroff"}, "Échec")
+            self._shutdown_until = now + 120  # écran « EXTINCTION » jusqu'à l'arrêt du processus (sécurité : 2 min)
+            self._call(now, "/api/system/power", {"action": "poweroff"}, "Échec", on_failure=lambda: setattr(self, "_shutdown_until", 0.0))
         elif action == "hint":
             self._say(now, "Maintenir 2 s : ARRÊT")
 
     # -- un tour de boucle
     def step(self) -> None:
         now = self.clock()
+        if now < self._shutdown_until:  # extinction demandée : plus rien d'autre à l'écran, LED éteintes
+            if self.display and not self._shutdown_drawn:
+                self._shutdown_drawn = True
+                self.display.power(True)
+                shutdown_frame(self.canvas)
+                self.display.show(self.canvas)
+            if self.set_leds:
+                self.set_leds(False, False)
+            return
+        if self._shutdown_drawn:  # l'extinction a échoué : on reprend l'affichage normal
+            self._shutdown_drawn = False
+            self._last_key = None
         st = self.status
         recording = bool(st and st.get("state") == "recording")
         was_awake = not self.cfg.panel_sleep_s or now < self._awake_until

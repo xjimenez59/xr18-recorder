@@ -1,0 +1,20 @@
+[Unit]
+Description=XR18 : écran « Vous pouvez éteindre » à la fin de l'extinction
+# Démarre tôt, donc s'arrête tard : son ExecStop passe après l'arrêt de tous les autres services (dont xr18rec),
+# juste avant le démontage de la carte SD.
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/xr18rec/current
+ExecStart=/bin/true
+ExecStop=/bin/sync
+ExecStop=-/usr/bin/python3 -m xr18rec.bootscreen --bye --config /etc/xr18rec.json
+TimeoutStopSec=10
+
+[Install]
+WantedBy=sysinit.target

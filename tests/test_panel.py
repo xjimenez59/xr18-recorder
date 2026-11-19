@@ -133,7 +133,9 @@ class ButtonTests(unittest.TestCase):
     def test_long_hold_when_idle_powers_off(self):
         actions, overlays = self.press(panel.ButtonLogic(), 0, 6.0, False)
         self.assertEqual(actions, ["poweroff"])
-        self.assertTrue(any("EXTINCTION" in o[0] for o in overlays))
+        self.assertTrue(any("ÉTEINDRE" in o[0] for o in overlays))
+        for text, _fraction in overlays:  # le texte tient dans le cadre de 128 px (6 px par caractère, marges)
+            self.assertLessEqual(len(text) * 6, oled.WIDTH - 6, text)
 
     def test_medium_press_when_idle_does_nothing(self):
         self.assertEqual(self.press(panel.ButtonLogic(), 0, 2.0, False)[0], [])
@@ -258,6 +260,26 @@ class PanelLoopTests(unittest.TestCase):
         p = self.make(STATUS_IDLE)
         self.run_press(p, 5.5)
         self.assertEqual(self.posts, [("/api/system/power", {"action": "poweroff"})])
+
+    def test_poweroff_shows_the_shutdown_screen_and_stays_on(self):
+        p = self.make(STATUS_IDLE)
+        self.run_press(p, 5.5)
+        self.assertTrue(p._shutdown_drawn)
+        self.assertEqual(self.leds[-1], (False, False))
+        self.clock.t += 30
+        p.step()  # 30 s plus tard, l'écran d'extinction n'est pas remplacé
+        self.assertTrue(p._shutdown_drawn)
+
+    def test_failed_poweroff_restores_the_normal_screen(self):
+        def refuse(path, body):
+            raise RuntimeError("refusé")
+        p = self.make(STATUS_IDLE)
+        p.post = refuse
+        self.run_press(p, 5.5)
+        time.sleep(0.2)  # l'appel part dans un fil
+        self.clock.t += 5
+        p.step()
+        self.assertFalse(p._shutdown_drawn)
 
     def test_leds_follow_the_state(self):
         p = self.make(STATUS_IDLE)
@@ -414,6 +436,20 @@ class BootScreenTests(unittest.TestCase):
             gpio.Lines = real
         self.assertEqual(calls["n"], 3)  # deux refus, puis la ligne est obtenue
         self.assertEqual(sets, [[1], [1], [1]])
+
+    def test_bye_screen_only_on_poweroff(self):
+        display = self.Display()
+        display.power = lambda on: None
+        cfg = config_mod.Config()
+        self.assertEqual(bootscreen.run_bye(cfg, display=display, poweroff=lambda: False), 0)
+        self.assertEqual(display.frames, [])  # simple redémarrage : rien
+        self.assertEqual(bootscreen.run_bye(cfg, display=display, poweroff=lambda: True), 0)
+        self.assertEqual(len(display.frames), 1)
+        c = oled.Canvas()
+        bootscreen.bye_frame(c)
+        self.assertEqual(display.frames[0], bytes(c.buf))
+        self.assertEqual(bootscreen.run_bye(config_mod.Config(panel="off"), display=display, poweroff=lambda: True), 0)
+        self.assertEqual(len(display.frames), 1)
 
     def test_boot_without_hardware_exits_at_once(self):
         stop = threading.Event()

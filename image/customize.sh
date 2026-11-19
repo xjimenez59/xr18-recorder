@@ -57,6 +57,7 @@ install -m 644 "$HERE/image/files/xr18rec.json" /etc/xr18rec.json
 install -m 644 "$HERE/image/files/xr18rec.service" /etc/systemd/system/xr18rec.service
 install -m 644 "$HERE/image/files/xr18rec-mount@.service" /etc/systemd/system/xr18rec-mount@.service
 install -m 644 "$HERE/image/files/xr18rec-boot.service" /etc/systemd/system/xr18rec-boot.service
+install -m 644 "$HERE/image/files/xr18rec-bye.service" /etc/systemd/system/xr18rec-bye.service
 install -m 644 "$HERE/image/files/xr18rec-growfs.service" /etc/systemd/system/xr18rec-growfs.service
 install -m 644 "$HERE/image/files/xr18rec-update.service" /etc/systemd/system/xr18rec-update.service
 install -m 644 "$HERE/image/files/xr18rec-update.path" /etc/systemd/system/xr18rec-update.path
@@ -66,7 +67,7 @@ install -d /etc/polkit-1/rules.d
 install -m 644 "$HERE/image/files/50-xr18rec.rules" /etc/polkit-1/rules.d/50-xr18rec.rules
 install -d /etc/systemd/journald.conf.d
 install -m 644 "$HERE/image/files/journald-xr18rec.conf" /etc/systemd/journald.conf.d/xr18rec.conf
-systemctl enable xr18rec.service xr18rec-boot.service xr18rec-growfs.service xr18rec-update.path avahi-daemon.service
+systemctl enable xr18rec.service xr18rec-boot.service xr18rec-bye.service xr18rec-growfs.service xr18rec-update.path avahi-daemon.service
 
 # ---- partition de démarrage (visible depuis Windows) ---------------------------------------
 # Dans ce chroot, la partition de démarrage est montée sur /boot (c'est /boot/firmware au runtime).
@@ -124,7 +125,7 @@ done
 
 # ---- vérifications -------------------------------------------------------------------------
 (cd "$APP/current" && python3 -m xr18rec config --config /etc/xr18rec.json >/dev/null)
-systemctl is-enabled xr18rec.service xr18rec-boot.service xr18rec-growfs.service xr18rec-update.path
+systemctl is-enabled xr18rec.service xr18rec-boot.service xr18rec-bye.service xr18rec-growfs.service xr18rec-update.path
 openssl version
 test -L "$APP/current" && test -f /etc/xr18rec/update-key.pub
 grep -E "[[:space:]]/[[:space:]]+ext4" /etc/fstab

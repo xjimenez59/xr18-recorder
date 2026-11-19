@@ -26,7 +26,7 @@ def cmd_serve(args) -> int:
     if applied:
         print(f"réglages de l'interface appliqués : {', '.join(sorted(applied))}", flush=True)
     rec = Recorder(cfg)
-    mixer = (MixerClient(cfg.xr18_host, cfg.xr18_osc_port, cfg.mix_max_db, cfg.mix_buses)
+    mixer = (MixerClient(cfg.xr18_host, cfg.xr18_osc_port, cfg.mix_max_db, cfg.mix_buses, cfg.mix_eq_max_db)
              if cfg.xr18_host else None)
     restart = {"asked": False}
     app = App(cfg, rec, mixer, base_path=args.config)

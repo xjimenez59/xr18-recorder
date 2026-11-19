@@ -493,6 +493,110 @@ class MixerTests(unittest.TestCase):
         self.assertEqual(addr, "/bus/1/mix/fader")
         self.assertAlmostEqual(fader_to_db(val), -6.0, places=1)
 
+    def _add_fx_and_eq(self, flat_bus_eq=True):
+        for b in range(1, 7):
+            self.xr.values[f"/rtn/1/mix/{b:02d}/level"] = 0.0
+            self.xr.values[f"/rtn/2/mix/{b:02d}/level"] = 0.5
+            self.xr.values[f"/bus/{b}/eq/on"] = 0
+            for band, typ, f in ((1, 1, 0.2), (2, 2, 0.3), (3, 2, 0.465), (4, 2, 0.665), (5, 2, 0.8), (6, 2, 0.9)):
+                self.xr.values[f"/bus/{b}/eq/{band}/type"] = typ
+                self.xr.values[f"/bus/{b}/eq/{band}/f"] = f
+                self.xr.values[f"/bus/{b}/eq/{band}/g"] = 0.5
+
+    def test_fx_returns(self):
+        from xr18rec.mixer import fader_to_db
+        self._add_fx_and_eq()
+        d = self.mx.get_bus(1)
+        self.assertEqual([s["id"] for s in d["sources"][-2:]], ["fx1", "fx2"])  # à la fin de la liste
+        self.assertEqual(d["sources"][0]["id"], "master")
+        fx1 = d["sources"][-2]
+        self.assertEqual((fx1["name"], fx1["kind"], fx1["fader"]), ("Réverb instr.", "fx", 0.0))
+        self.assertEqual(d["sources"][-1]["name"], "Réverb voix")
+        applied = self.mx.set_send(1, "fx2", 3.0)  # plafonné comme les autres départs (-6 dB ici)
+        self.assertAlmostEqual(applied, -6.0, places=1)
+        time.sleep(0.3)
+        addr, val = self.xr.sets[-1]
+        self.assertEqual(addr, "/rtn/2/mix/01/level")
+        self.assertAlmostEqual(fader_to_db(val), -6.0, places=1)
+
+    def test_eq_read(self):
+        self._add_fx_and_eq()
+        self.xr.values["/bus/2/eq/on"] = 1
+        self.xr.values["/bus/2/eq/6/g"] = 0.6  # +3 dB (bande 6 = aigus)
+        self.assertTrue(self.mx.get_bus(1)["eq"]["available"])
+        eq = self.mx.get_bus(2)["eq"]
+        self.assertEqual((eq["on"], eq["max_db"], eq["min_db"]), (True, 6.0, -15.0))
+        self.assertEqual([(b["id"], b["db"]) for b in eq["bands"]], [("low", 0.0), ("mid", 0.0), ("high", 3.0)])
+
+    def test_eq_absent_is_hidden(self):
+        self.assertEqual(self.mx.get_bus(1)["eq"], {"available": False})
+        from xr18rec.mixer import MixError
+        with self.assertRaises(MixError):
+            self.mx.set_eq(1, "low", 3)
+        with self.assertRaises(MixError):
+            self.mx.set_eq_on(1, True)
+
+    def test_band_gains_interpolation(self):
+        from xr18rec.mixer import eq_band_gains
+        self.assertEqual(eq_band_gains(0, 0, 0), [0] * 6)
+        g = eq_band_gains(6, 0, -6)
+        self.assertEqual((g[0], g[3], g[5]), (6, 0, -6))  # les bandes des curseurs prennent leur valeur exacte
+        self.assertTrue(g[0] > g[1] > g[2] > g[3] > g[4] > g[5])  # progression régulière entre les curseurs
+        self.assertEqual(eq_band_gains(3, 3, 3), [3] * 6)
+
+    def test_eq_set_drives_all_six_bands(self):
+        self._add_fx_and_eq()
+        self.xr.values["/bus/1/eq/6/type"] = 5  # passe-bas réglé dans Mixing Station
+        self.xr.values["/bus/1/eq/5/g"] = 0.8  # cloche à +9 dB
+        self.mx.get_bus(1)
+        self.assertEqual(self.mx.set_eq(1, "low", 12), {"id": "low", "db": 6.0})  # plafond +6 dB
+        self.mx.set_eq(1, "high", -6)
+        time.sleep(0.3)
+        types = [self.xr.values[f"/bus/1/eq/{b}/type"] for b in range(1, 7)]
+        self.assertEqual(types, [1, 2, 2, 2, 2, 4])  # plateau grave, 4 cloches, plateau aigu
+        self.assertAlmostEqual(self.xr.values["/bus/1/eq/6/f"], 0.799, places=2)  # ~5 kHz
+        gains = [self.xr.values[f"/bus/1/eq/{b}/g"] * 30 - 15 for b in range(1, 7)]
+        for got, want in zip(gains, (6, 3.9, 1.9, 0.0, -3.1, -6)):
+            self.assertAlmostEqual(got, want, places=1)
+        order = [a for a, _v in self.xr.sets]
+        self.assertLess(order.index("/bus/1/eq/6/type"), order.index("/bus/1/eq/6/g"))
+        self.assertFalse([a for a in order if a.endswith("eq/on") or "/bus/2/" in a])
+        self.assertEqual(self.mx.get_bus(1)["eq"]["bands"][0]["db"], 6.0)
+        self.assertEqual(self.mx.set_eq(1, "mid", -40)["db"], -15.0)
+        from xr18rec.mixer import MixError
+        for bad in (lambda: self.mx.set_eq(1, "nope", 0), lambda: self.mx.set_eq(1, "mid", float("nan")),
+                    lambda: self.mx.set_eq(1, "mid", "3"), lambda: self.mx.set_eq(5, "mid", 0)):
+            with self.assertRaises(MixError):
+                bad()
+
+    def test_eq_on_and_http(self):
+        import threading
+        self._add_fx_and_eq()
+        with tempfile.TemporaryDirectory() as tmp:
+            srv = make_server(Recorder(make_cfg(tmp)), mixer=self.mx)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+            def post(path, data):
+                req = urllib.request.Request(base + path, method="POST", data=json.dumps(data).encode())
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        return r.status, json.loads(r.read() or b"{}")
+                except urllib.error.HTTPError as e:
+                    return e.code, json.loads(e.read() or b"{}")
+            try:
+                self.mx.get_bus(1)
+                self.assertEqual(post("/api/mix/1/eq", {"on": True}), (200, {"on": True}))
+                self.assertEqual(post("/api/mix/1/eq", {"band": "mid", "db": -4}), (200, {"id": "mid", "db": -4.0}))
+                self.assertEqual(post("/api/mix/1/eq", {"band": "zzz", "db": 0})[0], 400)
+                self.assertEqual(post("/api/mix/6/eq", {"on": False})[0], 400)
+                time.sleep(0.3)
+                self.assertEqual(self.xr.values["/bus/1/eq/on"], 1)
+                self.assertTrue(self.mx.get_bus(1)["eq"]["on"])
+            finally:
+                srv.shutdown()
+                srv.server_close()
+
     def test_master_hidden_when_unsupported(self):
         for b in range(1, 7):
             del self.xr.values[f"/bus/{b}/mix/fader"]

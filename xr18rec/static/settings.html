@@ -66,6 +66,9 @@
     <div><label for="min_free_gb">Disque libre minimal <small>(Gio)</small></label><input type="number" id="min_free_gb" min="0" step="0.5"></div>
     <div><label for="mix_max_db">Plafond des retours <small>(dB)</small></label><input type="number" id="mix_max_db" min="-90" max="10" step="0.5"></div>
   </div>
+  <div class="two">
+    <div><label for="mix_eq_max_db">Gain max de l'égaliseur des retours <small>(dB, 0 à 15)</small></label><input type="number" id="mix_eq_max_db" min="0" max="15" step="0.5"></div>
+  </div>
   <label>Bus proposés aux musiciens <small>(sorties Aux)</small></label>
   <div class="buses" id="buses"></div>
 </div>
@@ -128,7 +131,7 @@
 
 <script src="/static/app.js"></script>
 <script>
-const NUM = ['channels', 'segment_seconds', 'min_free_gb', 'mix_max_db'];
+const NUM = ['channels', 'segment_seconds', 'min_free_gb', 'mix_max_db', 'mix_eq_max_db'];
 const TXT = ['xr18_host', 'device'];
 const SEL = ['rate', 'format'];
 let current = null;

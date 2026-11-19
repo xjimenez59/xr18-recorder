@@ -353,6 +353,12 @@ def make_handler(rec: Recorder, app: App):
                 return self._app_call(power)
             if path == "/api/system/restart-app":
                 return self._app_call(lambda: (app.restart_app(), {"ok": True})[1])
+            m = re.fullmatch(r"/api/mix/(\d+)/eq", path)
+            if m:
+                body = self._body()
+                if "on" in body:
+                    return self._mix_call(lambda: app.mixer.set_eq_on(int(m.group(1)), bool(body["on"])))
+                return self._mix_call(lambda: app.mixer.set_eq(int(m.group(1)), str(body.get("band")), body.get("db")))
             m = re.fullmatch(r"/api/mix/(\d+)/send", path)
             if m:
                 body = self._body()

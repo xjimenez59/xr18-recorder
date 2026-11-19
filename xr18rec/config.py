@@ -50,6 +50,7 @@ class Config:
     # Mix de retour (page /mix) : bus Aux proposés (1..6) et plafond des départs, par sécurité (in-ear).
     mix_buses: list = field(default_factory=lambda: [1, 2, 3, 4, 5, 6])
     mix_max_db: float = 0.0
+    mix_eq_max_db: float = 6.0  # gain positif maximal de l'égaliseur d'un retour (les coupures vont jusqu'à -15 dB)
     # Face avant facultative (écran OLED I²C, bouton, LED) : « auto » = active seulement si un écran répond ; « off » = jamais ;
     # « on » = aussi sans écran (bouton et LED seuls). Numéros de broches GPIO au sens BCM ; 0 = non câblé.
     panel: str = "auto"
@@ -96,6 +97,8 @@ class Config:
             raise ValueError("mix_buses : entiers de 1 à 6")
         if not -90 <= self.mix_max_db <= 10:
             raise ValueError("mix_max_db hors de -90..10")
+        if not 0 <= self.mix_eq_max_db <= 15:
+            raise ValueError("mix_eq_max_db hors de 0..15")
         if not (isinstance(self.click_bpm, int) and not isinstance(self.click_bpm, bool) and 30 <= self.click_bpm <= 240):
             raise ValueError("click_bpm : entier de 30 à 240")
         if not (isinstance(self.click_beats, int) and not isinstance(self.click_beats, bool) and 1 <= self.click_beats <= 12):
@@ -144,7 +147,7 @@ def load(path: str | None = None) -> Config:
 
 # Réglages modifiables depuis l'interface (les autres exigent de modifier le fichier de configuration).
 EDITABLE = ("xr18_host", "device", "rate", "format", "channels", "segment_seconds", "min_free_gb",
-            "mix_max_db", "mix_buses", "click_bpm", "click_beats", "click_accent", "click_sound", "click_channel",
+            "mix_max_db", "mix_eq_max_db", "mix_buses", "click_bpm", "click_beats", "click_accent", "click_sound", "click_channel",
             "click_level_db", "click_with_rec")
 AUDIO_KEYS = ("device", "rate", "format", "channels", "segment_seconds")  # figés pendant un enregistrement
 

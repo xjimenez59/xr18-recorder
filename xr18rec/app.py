@@ -12,7 +12,7 @@ from .session import Recorder, RecorderError
 from .updates import UpdateService
 
 _TYPES = {"xr18_host": str, "device": str, "rate": int, "format": str, "channels": int,
-          "segment_seconds": int, "min_free_gb": float, "mix_max_db": float, "mix_buses": list,
+          "segment_seconds": int, "min_free_gb": float, "mix_max_db": float, "mix_eq_max_db": float, "mix_buses": list,
           "click_bpm": int, "click_beats": int, "click_accent": bool, "click_sound": str, "click_channel": int,
           "click_level_db": float, "click_with_rec": bool}
 
@@ -80,9 +80,10 @@ class App:
             if self.mixer:
                 self.mixer.close()
             self.mixer = (MixerClient(self.cfg.xr18_host, self.cfg.xr18_osc_port, self.cfg.mix_max_db,
-                                      self.cfg.mix_buses) if self.cfg.xr18_host else None)
+                                      self.cfg.mix_buses, self.cfg.mix_eq_max_db) if self.cfg.xr18_host else None)
         elif self.mixer:
             self.mixer.max_db = self.cfg.mix_max_db
+            self.mixer.eq_max_db = self.cfg.mix_eq_max_db
             self.mixer.buses = [b for b in self.cfg.mix_buses if 1 <= b <= 6]
 
     def reset(self) -> dict:

@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 *.wav
 .claude/
+
+# Notes de travail et relevé de la console (non publiés)
+docs/besoins-console.md
+docs/releve-xr18-*.json
+docs/releve-xr18-dump.py

@@ -14,5 +14,6 @@
   "xr18_host": "192.168.1.50",
   "xr18_osc_port": 10024,
   "mix_buses": [1, 2, 3, 4, 5, 6],
-  "mix_max_db": 0.0
+  "mix_max_db": 0.0,
+  "mix_eq_max_db": 6.0
 }

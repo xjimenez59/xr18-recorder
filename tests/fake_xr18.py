@@ -29,6 +29,14 @@ def initial_values():
         v[f"/bus/{b}/mix/fader"] = 0.6
         v[f"/bus/{b}/mix/on"] = 1
     v["/lr/mix/on"] = 1
+    for b in range(1, 7):  # retours d'effets FX1/FX2 (à 0 dans les bus) et égaliseur plat de chaque bus
+        for r in (1, 2):
+            v[f"/rtn/{r}/mix/{b:02d}/level"] = 0.0
+        v[f"/bus/{b}/eq/on"] = 1 if b != 1 else 0
+        for band in range(1, 7):
+            v[f"/bus/{b}/eq/{band}/type"] = 2
+            v[f"/bus/{b}/eq/{band}/f"] = 0.5
+            v[f"/bus/{b}/eq/{band}/g"] = 0.5
     return v
 
 

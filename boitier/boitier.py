@@ -4,7 +4,7 @@
 Contreplaqué 3 mm, assemblage à queues droites, couvercle démontable par 4 vis M3
 dans des écrous emprisonnés (plots d'angle de 3 couches). Stdlib uniquement.
 
-    py boitier/boitier.py                 # -> boitier/boitier.svg et boitier/essai.svg
+    py boitier/boitier.py                 # -> boitier.svg, couvercle.svg (couvercle seul), essai.svg
     py boitier/boitier.py --kerf 0.18 --epaisseur 3.2
 
 Repère : toutes les cotes en mm. Les « cotes intérieures » L x W x H sont celles de la
@@ -16,34 +16,44 @@ import math
 import os
 
 # ---------------------------------------------------------------- paramètres
-T = 3.0            # épaisseur réelle du contreplaqué (à mesurer au pied à coulisse)
+T = 5.0            # épaisseur réelle du contreplaqué (5 mm mesuré le 22/11/2026)
 KERF = 0.15        # largeur de coupe du laser (à mesurer avec essai.svg)
+TENON_L = 20.0       # longueur des tenons du bas des parois (dans des encoches du fond)
+N_TENONS_LONG, N_TENONS_COURT = 3, 2   # tenons par paroi avant/arrière (longues) et gauche/droite (courtes)
 N_DOIGTS = 5       # nombre de segments sur la hauteur (impair : les coins finissent en doigt)
 
 L, W, H = 128.0, 74.0, 38.0   # cavité intérieure : longueur (x), largeur (y), hauteur (z)
 
 # Raspberry Pi 2 B : USB/Ethernet à droite (mur droit), prise d'alimentation sur le mur avant
 PI_L, PI_W = 85.0, 56.0
-PI_JOUR_DROITE = 1.0           # jeu entre la carte et le mur droit
-PI_ENTRETOISE = 6.0            # hauteur des entretoises sous la carte
+PI_JOUR_DROITE = 0.5           # jeu entre la carte et le mur droit (les prises USB/Ethernet doivent rester accessibles)
+PI_JOUR_AVANT = 0.5            # jeu entre la carte et le mur avant (prise micro-USB d'alimentation : plus près = fiche accessible)
+# La carte repose sur 4 piliers en contreplaqué collés au fond (hauteur = épaisseur T), percés du trou de la vis ;
+# l'écrou est emprisonné dans un trou hexagonal du fond (il ne tourne pas), inséré par le dessous.
 PI_TROUS = [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)]   # M2,5 (58 x 49)
-PI_TROU_D = 2.7
+PI_TROU_D = 2.4                # trou de la vis M2 dans le pilier (le trou du Pi fait 2,75 : M2 y passe avec du jeu)
+PI_VIS_ECROU_PLATS = 4.2       # écrou M2 : 4,0 mm sur plats + jeu
+PI_PILIER = 9.0                # côté des piliers carrés
 PI_PCB = 1.4
 
-# Plots d'angle (3 couches) : vis M3 du couvercle
-PLOT = 9.0
-VIS_D = 3.4
-ECROU_M3_PLATS = 5.7           # écrou M3 : 5,5 mm sur plats, un peu de jeu
+# Plots d'angle : vis du couvercle dans un écrou emprisonné (alvéole hexagonale) ;
+# n couches percées d'un hexagone + 1 couche pleine percée dessous
+# Tout en M2 (même vis pour le couvercle, le Pi et l'écran) : écrou M2 = 4 mm sur plats, 1,6 mm d'épaisseur
+PLOT = 12.0
+VIS_D = 2.4                    # trou de passage M2
+ECROU_PLATS = 4.2              # écrou M2 : 4,0 mm sur plats + jeu
+ECROU_H = 1.6                  # épaisseur de l'écrou M2 standard
+VIS_L = 12.0                   # vis du couvercle : traverse le couvercle (T), l'écrou posé au fond de l'alvéole (T) et finit dans la couche du dessous
 
-# Face avant : bouton Ø16 à gauche, écran 2,42" (70,1 x 48,1) à droite
-BOUTON_D = 16.2
+# Face avant : bouton (filetage 11,62 mm) à gauche, écran 2,42" (70,1 x 48,1) à droite
+BOUTON_D = 12.0                # filetage mesuré 11,62 mm (22/11/2026) + jeu
 BOUTON_X = 14.0                # centre, depuis la paroi gauche intérieure
 ECRAN_L, ECRAN_H = 70.1, 48.1
 ECRAN_X = 28.0                 # bord gauche du module, depuis la paroi gauche intérieure
-ECRAN_FENETRE = (60.0, 32.0)   # fenêtre vue de face (à confirmer avec essai.svg)
+ECRAN_FENETRE = (62.0, 39.0)   # fenêtre vue de face : le verre doit y entrer (mesuré 22/11/2026)
 ECRAN_FENETRE_DECALAGE = (0.0, 0.0)   # décalage de la fenêtre par rapport au centre du module
 ECRAN_TROUS = (64.0, 42.0)     # entraxe des trous du module (À MESURER)
-ECRAN_TROU_D = 2.3             # vis M2
+ECRAN_TROU_D = 2.3             # vis M2 (trou du couvercle)
 
 # Petite carte (transistor + résistances + broches), posée au fond à l'avant gauche : repère gravé
 CARTE_L, CARTE_W = 30.0, 20.0
@@ -135,10 +145,18 @@ def texte(txt, cx, cy, hauteur):
     return [[(cx + (x - mx) * k, cy + (y - my) * k) for x, y in poly] for poly in tp.to_polygons(closed_only=True)]
 
 
-def paroi_doigts(largeur, hauteur, doigts_pairs, n=None):
+def plot_couches_ecrou():
+    """Nombre de couches à alvéole hexagonale d'un plot : la hauteur de l'alvéole (n x T) la plus proche de l'épaisseur
+    de l'écrou. Si l'alvéole est moins profonde que l'écrou, celui-ci dépasse du plot : coller alors les plots *avec le
+    couvercle vissé* (voir docs/boitier.md). Ici (écrou 3,2 mm, T = 5 mm) l'écrou tient entièrement dans l'alvéole."""
+    return max(1, round(ECROU_H / T))
+
+
+def paroi_doigts(largeur, hauteur, doigts_pairs, n=None, tenons=()):
     """Paroi à queues droites sur ses deux bords verticaux.
     doigts_pairs=True : les segments pairs (0, 2, ...) avancent jusqu'au bord ;
-    False : ce sont les segments impairs (la paroi complémentaire)."""
+    False : ce sont les segments impairs (la paroi complémentaire).
+    tenons : [(a, b), ...] tenons de hauteur T sous le bord inférieur (dans des encoches du fond)."""
     n = n or N_DOIGTS
     s = hauteur / n
 
@@ -151,26 +169,59 @@ def paroi_doigts(largeur, hauteur, doigts_pairs, n=None):
         droite += [(x, i * s), (x, (i + 1) * s)]
         xg = 0 if avance(i) else T
         gauche += [(xg, i * s), (xg, (i + 1) * s)]
-    return _clean(gauche[0:1] + droite + gauche[::-1])
+    bas = []
+    for a, b in sorted(tenons):
+        bas += [(a, 0), (a, -T), (b, -T), (b, 0)]
+    return _clean(gauche[0:1] + bas + droite + gauche[::-1])
+
+
+def positions_tenons(n, debut, fin, longueur=None):
+    """n tenons de `longueur` répartis régulièrement entre debut et fin (coordonnée le long de la paroi)."""
+    longueur = longueur or TENON_L
+    pas = (fin - debut) / n
+    return [(debut + pas * (k + 0.5) - longueur / 2, debut + pas * (k + 0.5) + longueur / 2) for k in range(n)]
+
+
+def fond_contour(t_long, t_court):
+    """Contour du fond : rectangle Ex x Ey avec une encoche de T x longueur par tenon des quatre parois."""
+    pts = [(0, 0)]
+    for a, b in t_long:                                     # paroi avant (y = 0)
+        pts += [(a, 0), (a, T), (b, T), (b, 0)]
+    pts.append((Ex, 0))
+    for a, b in t_court:                                    # paroi droite (x = Ex)
+        pts += [(Ex, a), (Ex - T, a), (Ex - T, b), (Ex, b)]
+    pts.append((Ex, Ey))
+    for a, b in reversed(t_long):                           # paroi arrière (y = Ey)
+        pts += [(b, Ey), (b, Ey - T), (a, Ey - T), (a, Ey)]
+    pts.append((0, Ey))
+    for a, b in reversed(t_court):                          # paroi gauche (x = 0)
+        pts += [(0, b), (T, b), (T, a), (0, a)]
+    return pts
 
 
 # ------------------------------------------------------------------ pièces
 Ex, Ey = L + 2 * T, W + 2 * T
 PI_X0 = L - PI_JOUR_DROITE - PI_L        # coin du Pi, repère intérieur
-PI_Y0 = (W - PI_W) / 2
+PI_Y0 = PI_JOUR_AVANT
 
 
 def pieces():
     P = {}
 
     # Fond : trous des entretoises du Pi + fentes d'aération
-    trous = [("c", T + PI_X0 + x, T + PI_Y0 + y, PI_TROU_D / 2) for x, y in PI_TROUS]
+    # trous hexagonaux des écrous du Pi (insérés par le dessous) ; les piliers se collent au-dessus (repères gravés)
+    trous = [hexagone(T + PI_X0 + x, T + PI_Y0 + y, PI_VIS_ECROU_PLATS) for x, y in PI_TROUS]
     fentes = [slot(T + 62 + j * 6, T + cy, 2.5, 15) for j in range(6) for cy in (W / 2 - 10, W / 2 + 10)]
     # pas d'accès à la carte micro-SD : mises à jour en OTA ; ouvrir le couvercle si besoin
     grav = [rect(T + CARTE_X, T + CARTE_Y, T + CARTE_X + CARTE_L, T + CARTE_Y + CARTE_W)]   # repère de la carte
+    for x, y in PI_TROUS:                                   # repères des piliers du Pi
+        yb = max(T + PI_Y0 + y - PI_PILIER / 2, T)             # le pilier ne déborde pas sur le mur avant
+        grav.append(rect(T + PI_X0 + x - PI_PILIER / 2, yb, T + PI_X0 + x + PI_PILIER / 2, T + PI_Y0 + y + PI_PILIER / 2))
     if CARTE_TROUS:
         trous += [("c", T + CARTE_X + x, T + CARTE_Y + y, 1.1) for x, y in CARTE_TROUS]
-    P["fond"] = dict(contour=rect(0, 0, Ex, Ey), trous=trous + fentes, gravure=grav, n=1)
+    t_long = positions_tenons(N_TENONS_LONG, T, Ex - T)
+    t_court = positions_tenons(N_TENONS_COURT, T, Ey - T)
+    P["fond"] = dict(contour=fond_contour(t_long, t_court), trous=trous + fentes, gravure=grav, n=1)
 
     # Couvercle : 4 vis M3, bouton, fenêtre et 4 vis M2 de l'écran
     cl = []
@@ -191,34 +242,37 @@ def pieces():
 
     # Murs avant/arrière : largeur Ex, doigts sur les segments pairs
     pwr_u = T + PI_X0 + 10.6
-    P["mur_avant"] = dict(contour=paroi_doigts(Ex, H, True),
-                          trous=[slot(pwr_u, 9.0, 14.0, 9.0)], n=1)   # micro-USB d'alimentation
+    P["mur_avant"] = dict(contour=paroi_doigts(Ex, H, True, tenons=t_long),
+                          trous=[slot(pwr_u, T + PI_PCB + 1.3, 18.0, 11.0)], n=1)   # micro-USB d'alimentation
     vent = [slot(T + 50 + j * 8, 18.0, 2.5, 20.0) for j in range(8)]
-    P["mur_arriere"] = dict(contour=paroi_doigts(Ex, H, True), trous=vent, n=1)
+    P["mur_arriere"] = dict(contour=paroi_doigts(Ex, H, True, tenons=t_long), trous=vent, n=1)
 
     # Murs gauche/droit : largeur Ey, doigts complémentaires (segments impairs)
     vent_g = [slot(T + 14 + j * 8, 18.0, 2.5, 20.0) for j in range(6)]
-    P["mur_gauche"] = dict(contour=paroi_doigts(Ey, H, False), trous=vent_g, n=1)
-    zb = PI_ENTRETOISE + 0.5                  # bas des ouvertures
-    ouv = [
-        rect(T + PI_Y0 + 10.25 - 8.5, zb, T + PI_Y0 + 10.25 + 8.5, zb + 15.0),   # Ethernet
-        rect(T + PI_Y0 + 29 - 7.5, zb, T + PI_Y0 + 29 + 7.5, zb + 17.0),         # USB (XR18)
-        rect(T + PI_Y0 + 47 - 7.5, zb, T + PI_Y0 + 47 + 7.5, zb + 17.0),         # USB (disque)
-    ]
-    P["mur_droit"] = dict(contour=paroi_doigts(Ey, H, False), trous=ouv, n=1)
+    P["mur_gauche"] = dict(contour=paroi_doigts(Ey, H, False, tenons=t_court), trous=vent_g, n=1)
+    # Une seule grande ouverture pour Ethernet + 2 USB : le manchon moulé d'une fiche est plus large et plus haut que la
+    # prise (RJ45 avec ergot ~ 16 x 15 mm, USB jusqu'à ~ 17 mm). Prises : Ethernet y 10,25 +/- 8, USB y 29 et 47 +/- 6,65,
+    # hauteur max 15,6 mm au-dessus de la carte. Marges : ~ 1,3 mm côté avant (mur voisin), ~ 2 mm ailleurs.
+    pcb = T + PI_PCB
+    ouv = [rect(T + PI_Y0 + 10.25 - 8 - 1.3, pcb - 2.0, T + PI_Y0 + 47 + 6.65 + 2.0, pcb + 15.6 + 3.0)]
+    P["mur_droit"] = dict(contour=paroi_doigts(Ey, H, False, tenons=t_court), trous=ouv, n=1)
 
     # Plots d'angle : 3 couches (vis / écrou / vis), 4 jeux
-    P["plot_haut"] = dict(contour=rect(0, 0, PLOT, PLOT), trous=[("c", PLOT / 2, PLOT / 2, VIS_D / 2)], n=4)
-    P["plot_milieu"] = dict(contour=rect(0, 0, PLOT, PLOT), trous=[hexagone(PLOT / 2, PLOT / 2, ECROU_M3_PLATS)], n=4)
-    P["plot_bas"] = dict(contour=rect(0, 0, PLOT, PLOT), trous=[("c", PLOT / 2, PLOT / 2, VIS_D / 2)], n=4)
+    n_ecrou = plot_couches_ecrou()
+    P["plot_ecrou"] = dict(contour=rect(0, 0, PLOT, PLOT), trous=[hexagone(PLOT / 2, PLOT / 2, ECROU_PLATS)], n=4 * n_ecrou)
+    rogne = max(0.0, PI_PILIER / 2 - (PI_Y0 + PI_TROUS[0][1]))   # les piliers avant sont rognés côté mur avant
+    P["pilier_pi"] = dict(contour=rect(0, rogne, PI_PILIER, PI_PILIER),
+                          trous=[("c", PI_PILIER / 2, PI_PILIER / 2, PI_TROU_D / 2)], n=4)
+    P["plot_fond"] = dict(contour=rect(0, 0, PLOT, PLOT), trous=[("c", PLOT / 2, PLOT / 2, VIS_D / 2)], n=4)
     return P
 
 
 def essai():
     """Planche d'essai : réglage du kerf (doigts), fenêtre/trous de l'écran, bouton, écrou."""
     P = {}
-    P["essai_doigts_A"] = dict(contour=paroi_doigts(30, 3 * 6 + 3, True, n=5), trous=[], n=1)
-    P["essai_doigts_B"] = dict(contour=paroi_doigts(30, 3 * 6 + 3, False, n=5), trous=[], n=1)
+    h = 5 * 1.6 * T                                  # 5 segments de 1,6 x T
+    P["essai_doigts_A"] = dict(contour=paroi_doigts(30, h, True, n=5), trous=[], n=1)
+    P["essai_doigts_B"] = dict(contour=paroi_doigts(30, h, False, n=5), trous=[], n=1)
     cx, cy = 45.0, 30.0
     tr = [slot(cx, cy, *ECRAN_FENETRE)]
     for sx in (-1, 1):
@@ -226,8 +280,15 @@ def essai():
             tr.append(("c", cx + sx * ECRAN_TROUS[0] / 2, cy + sy * ECRAN_TROUS[1] / 2, ECRAN_TROU_D / 2))
     P["essai_ecran"] = dict(contour=rect(0, 0, 90, 60), trous=tr, n=1)
     P["essai_bouton"] = dict(contour=rect(0, 0, 30, 30), trous=[("c", 15, 15, BOUTON_D / 2)], n=1)
+    P["essai_pilier"] = dict(contour=rect(0, 0, 3 * PI_PILIER, 2 * PI_PILIER),
+                             trous=[hexagone(PI_PILIER, PI_PILIER, PI_VIS_ECROU_PLATS)], n=1)   # essai de l'écrou du Pi
+    # essai des tenons : une encoche dans un bout de fond, un tenon sous un bout de paroi
+    P["essai_tenon_fond"] = dict(contour=[(0, 0), (10, 0), (10, T), (10 + TENON_L, T), (10 + TENON_L, 0), (40, 0), (40, 25), (0, 25)],
+                                 trous=[], n=1)
+    P["essai_tenon_paroi"] = dict(contour=[(0, 0), (10, 0), (10, -T), (10 + TENON_L, -T), (10 + TENON_L, 0), (40, 0), (40, 20), (0, 20)],
+                                  trous=[], n=1)
     P["essai_ecrou"] = dict(contour=rect(0, 0, PLOT, PLOT),
-                            trous=[hexagone(PLOT / 2, PLOT / 2, ECROU_M3_PLATS)], n=1)
+                            trous=[hexagone(PLOT / 2, PLOT / 2, ECROU_PLATS)], n=1)
     return P
 
 
@@ -313,6 +374,8 @@ def main():
     w, h = ecrire_svg(pieces(), os.path.join(a.sortie, "boitier.svg"), KERF)
     print("boitier.svg : %.0f x %.0f mm (extérieur du boîtier : %.0f x %.0f x %.0f mm)"
           % (w, h, Ex, Ey, H + 2 * T))
+    w, h = ecrire_svg({"couvercle": pieces()["couvercle"]}, os.path.join(a.sortie, "couvercle.svg"), KERF)
+    print("couvercle.svg : %.0f x %.0f mm" % (w, h))
     w, h = ecrire_svg(essai(), os.path.join(a.sortie, "essai.svg"), KERF)
     print("essai.svg : %.0f x %.0f mm" % (w, h))
 

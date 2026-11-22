@@ -152,9 +152,9 @@ def dessiner(ax, vue, accessoires):
     for t in P["couvercle"]["trous"]:
         if isinstance(t, tuple):
             _, cx, cy, r = t
-            if abs(r - B.ECRAN_TROU_D / 2) < 1e-6 + B.KERF:
+            if abs(r - B.ECRAN_TROU_D / 2) < 0.01:
                 cylindre(ax, vue, cx, cy, zt, zt + 1.2, 1.8, "#303030", zorder=4.2)
-            elif abs(r - B.VIS_D / 2) < 0.2:
+            elif abs(r - B.VIS_D / 2) < 0.01:
                 cylindre(ax, vue, cx, cy, zt, zt + 2.0, 3.0, "#4a4f55", bord="#111", zorder=4.2)
 
     # bouton : bague chromée + capuchon, anneau lumineux rouge
@@ -178,7 +178,9 @@ def plan(sortie):
     x0, y0 = T + B.PI_X0, T + B.PI_Y0                                   # Pi 2 B
     ax.add_patch(Rectangle((x0, y0), B.PI_L, B.PI_W, fc="#2f7d4f", ec="#123", lw=1, alpha=0.85))
     for hx, hy in B.PI_TROUS:
-        ax.add_patch(Circle((x0 + hx, y0 + hy), 2.6, fc="#d0a040", ec="#333", lw=0.6))
+        ax.add_patch(Rectangle((x0 + hx - B.PI_PILIER / 2, y0 + hy - B.PI_PILIER / 2), B.PI_PILIER, B.PI_PILIER,
+                               fc=BOIS_FONCE, ec=TRANCHE, lw=0.8, alpha=0.9))
+        ax.add_patch(Circle((x0 + hx, y0 + hy), 1.4, fc="#d0a040", ec="#333", lw=0.6))
     ax.add_patch(Rectangle((x0 + B.PI_L - 21, y0 + 2), 21, 17.5, fc="#aab", ec="#333", lw=0.6))   # Ethernet
     for yy in (29, 47):
         ax.add_patch(Rectangle((x0 + B.PI_L - 17, y0 + yy - 6.5), 17, 13, fc="#aab", ec="#333", lw=0.6))
@@ -196,7 +198,7 @@ def plan(sortie):
     ax.text(B.Ex - 3, y0 + 29, "USB / Ethernet", rotation=90, ha="center", va="center", fontsize=8)
     ax.text(T + 50, 1.2, "alimentation (mur avant)", ha="center", va="center", fontsize=7)
     ax.set_xlim(-4, B.Ex + 4); ax.set_ylim(-4, B.Ey + 4); ax.set_aspect("equal"); ax.axis("off")
-    ax.set_title("Vue de dessus, couvercle ôté (mm) - avant en bas, USB/Ethernet à droite ; plots d'angle en haut (z 29-38), au-dessus du fond")
+    ax.set_title("Vue de dessus, couvercle ôté (mm) - avant en bas, USB/Ethernet à droite ; plots d'angle suspendus sous le couvercle (z ~ 27-37)")
     fig.tight_layout()
     fig.savefig(os.path.join(sortie, "apercu-plan.png"), dpi=110, facecolor="white")
     plt.close(fig)
@@ -214,8 +216,9 @@ def main():
             ax.autoscale_view()
             ax.axis("off")
             ax.set_title(titre, fontsize=11)
-        fig.suptitle("Boîtier XR18 - %s (134 x 80 x 44 mm, CP 3 mm)"
-                     % ("avec écran, bouton, vis et pieds (facultatifs)" if accessoires else "sans accessoires"), fontsize=13)
+        fig.suptitle("Boîtier XR18 - %s (%.0f x %.0f x %.0f mm, CP %g mm)"
+                     % ("avec écran, bouton, vis et pieds (facultatifs)" if accessoires else "sans accessoires",
+                        B.Ex, B.Ey, B.H + 2 * B.T, B.T), fontsize=13)
         fig.tight_layout()
         fig.savefig(os.path.join(sortie, nom), dpi=110, facecolor="white")
         plt.close(fig)

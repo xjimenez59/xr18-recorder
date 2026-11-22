@@ -25,6 +25,7 @@ from .bootscreen import boot_frame, shutdown_frame  # écran d'attente de l'allu
 
 STATUS_EVERY_S = 1.0
 DRAW_EVERY_S = 0.25
+NET_REFRESH_S = 5.0  # relecture de l'adresse IP (affichée au repos)
 POLL_S = 0.02  # lecture du bouton : 20 ms (l'anti-rebond demande deux lectures identiques)
 NOTICE_S = 2.5
 
@@ -235,7 +236,9 @@ class Panel:
         self.cfg, self.display = cfg, display
         self.read_button, self.set_leds = read_button, set_leds
         self.fetch, self.post, self.clock = fetch, post, clock
+        self._net_fixed = net is not None  # adresse imposée (tests, aperçu) : jamais relue
         self.net = net or net_info()
+        self._net_read = clock()
         self.canvas = oled.Canvas()
         self.logic = ButtonLogic()
         self.status: dict | None = None
@@ -299,6 +302,10 @@ class Panel:
         if self._shutdown_drawn:  # l'extinction a échoué : on reprend l'affichage normal
             self._shutdown_drawn = False
             self._last_key = None
+        if not self._net_fixed and now - self._net_read >= NET_REFRESH_S:
+            # le réseau arrive après le démarrage (DHCP) et peut changer : on relit l'adresse ; frame_key redessine si elle change
+            self._net_read = now
+            self.net = net_info()
         st = self.status
         recording = bool(st and st.get("state") == "recording")
         was_awake = not self.cfg.panel_sleep_s or now < self._awake_until

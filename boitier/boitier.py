@@ -27,7 +27,7 @@ L, W, H = 128.0, 74.0, 38.0   # cavité intérieure : longueur (x), largeur (y),
 # Raspberry Pi 2 B : USB/Ethernet à droite (mur droit), prise d'alimentation sur le mur avant
 PI_L, PI_W = 85.0, 56.0
 PI_JOUR_DROITE = 0.5           # jeu entre la carte et le mur droit (les prises USB/Ethernet doivent rester accessibles)
-PI_JOUR_AVANT = 0.5            # jeu entre la carte et le mur avant (prise micro-USB d'alimentation : plus près = fiche accessible)
+PI_JOUR_AVANT = 1.5            # jeu entre la carte et le mur avant (prise micro-USB d'alimentation : plus près = fiche accessible)
 # La carte repose sur 4 piliers en contreplaqué collés au fond (hauteur = épaisseur T), percés du trou de la vis ;
 # l'écrou est emprisonné dans un trou hexagonal du fond (il ne tourne pas), inséré par le dessous.
 PI_TROUS = [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)]   # M2,5 (58 x 49)

@@ -91,3 +91,7 @@ Pièges rencontrés : **pas de `Conflicts=` entre les deux services** (systemd e
 ## Polices
 
 Texte et titres : polices bitmap **Spleen** (6×12, 12×24, 16×32), © Frédéric Cambus, licence BSD 2 clauses (<https://github.com/fcambus/spleen>). Les données sont dans `xr18rec/fontdata.py` (la mention de copyright et la licence y figurent), générées par `scripts/make_font.py` à partir des fichiers BDF d'origine. Le chronomètre est dessiné en sept segments (`panel.big_clock`). Texte sans accents : les accents sont retirés, l'OLED affiche « Pret ».
+
+## Anneau « respirant » (écran éteint)
+
+Quand l'écran s'est éteint au repos (`panel_sleep_s`), l'anneau rouge monte et descend doucement (cycle de 4 s, `panel.breath`). Il redevient éteint dès que l'écran se rallume, et reste allumé fixe pendant une prise. Le Pi 2 B n'a pas de PWM matériel sur GPIO27 : la modulation est faite en logiciel (200 Hz, un petit fil actif seulement pendant le fondu). Si un scintillement se voit, déplacer le fil de GPIO27 (broche 13) sur GPIO18 (broche 12, PWM matériel) demande `dtoverlay=pwm` dans `config.txt` et un changement du code.

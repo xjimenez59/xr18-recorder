@@ -11,6 +11,7 @@ le Pi proprement. **Non vérifié sur le matériel.**
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
 import subprocess
@@ -77,6 +78,65 @@ def short_alert(alert: dict, status: dict) -> str:
     if code == "recorder":
         return error_cause(alert.get("message", ""))
     return SHORT_ALERTS.get(code) or str(alert.get("message", "ALERTE")).upper()
+
+
+BREATH_PERIOD_S = 4.0   # un cycle complet « fade on / fade off » de l'anneau
+PWM_PERIOD_S = 0.005    # 200 Hz : assez rapide pour ne pas scintiller
+
+
+def breath(t: float, period: float = BREATH_PERIOD_S) -> float:
+    """Luminosité 0..1 d'un fondu doux (0 à t=0). Le carré compense la sensibilité de l'œil (gamma)."""
+    x = (1 - math.cos(2 * math.pi * t / period)) / 2
+    return x * x
+
+
+class Leds:
+    """Sorties LED (rec, ok). `rec` peut être un niveau entre 0 et 1 : PWM logiciel par un fil, actif seulement
+    pendant un fondu (aucun coût sinon). Le Pi 2 B n'a pas de PWM matériel sur GPIO27 ; non mesuré sur Pi."""
+
+    def __init__(self, write):
+        self._write = write  # write(rec: bool, ok: bool)
+        self._rec, self._ok = 0.0, False
+        self._wake = threading.Event()
+        self._stop = False
+        self._last = None
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def set(self, rec, ok) -> None:
+        self._rec, self._ok = float(rec), bool(ok)
+        self._wake.set()
+
+    __call__ = set
+
+    def close(self) -> None:
+        self._stop = True
+        self._rec, self._ok = 0.0, False
+        self._wake.set()
+        self._thread.join(1.0)  # l'anneau est éteint quand close() rend la main
+
+    def _out(self, rec: bool, ok: bool) -> None:
+        if (rec, ok) != self._last:
+            self._last = (rec, ok)
+            try:
+                self._write(rec, ok)
+            except OSError:
+                self._last = None
+
+    def _run(self) -> None:
+        while not self._stop:
+            rec, ok = self._rec, self._ok
+            if 0.0 < rec < 1.0:
+                on = rec * PWM_PERIOD_S
+                self._out(True, ok)
+                time.sleep(on)
+                self._out(False, ok)
+                time.sleep(PWM_PERIOD_S - on)
+            else:
+                self._out(rec >= 1.0, ok)
+                self._wake.wait(0.5)  # état fixe : rien à faire jusqu'au prochain changement
+                self._wake.clear()
+        self._out(False, False)
 
 
 def net_info() -> tuple[str, str]:
@@ -253,6 +313,7 @@ class Panel:
         self._was_active = True
         self._shutdown_until = 0.0
         self._shutdown_drawn = False
+        self._asleep_since: float | None = None
         self.stop_event = threading.Event()
 
     # -- entrées
@@ -344,9 +405,16 @@ class Panel:
             if recording:
                 rec = blink2 if alerts else True
                 ok = False
+                self._asleep_since = None
             else:
                 rec = False
                 ok = blink1 if alerts else bool(st)
+                if awake:
+                    self._asleep_since = None
+                else:  # écran éteint au repos : l'anneau « respire » (le fondu part du noir)
+                    if self._asleep_since is None:
+                        self._asleep_since = now
+                    rec = breath(now - self._asleep_since)
             self.set_leds(rec, ok)
 
     def poll_status(self) -> None:
@@ -419,9 +487,10 @@ def build(cfg) -> Panel | None:
             leds = gpio.Lines(pins, gpio.FLAG_OUTPUT)
             order = [bool(cfg.panel_led_rec_gpio), bool(cfg.panel_led_ok_gpio)]
 
-            def set_leds(rec, ok, leds=leds, order=order):  # noqa: E306
+            def write(rec, ok, leds=leds, order=order):  # noqa: E306
                 wanted = [rec, ok]
                 leds.set([int(v) for v, used in zip(wanted, order) if used])
+            set_leds = Leds(write)  # appelable : set_leds(rec, ok) ; .close() éteint et arrête le fil
     except gpio.GpioError as exc:
         print(f"face avant : LED indisponibles ({exc})", flush=True)
     fetch, post = api_client(cfg.port)
@@ -448,6 +517,8 @@ def run(cfg) -> int:
             panel.display.power(False)
         if panel.set_leds:
             panel.set_leds(False, False)
+            if hasattr(panel.set_leds, "close"):
+                panel.set_leds.close()
     return 0
 
 

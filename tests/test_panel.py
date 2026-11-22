@@ -210,6 +210,34 @@ class RenderTests(unittest.TestCase):
         self.assertNotEqual(base.buf, c.buf)
 
 
+class BreathTests(unittest.TestCase):
+    def test_breath_curve(self):
+        self.assertEqual(panel.breath(0), 0.0)
+        self.assertAlmostEqual(panel.breath(panel.BREATH_PERIOD_S / 2), 1.0)
+        self.assertAlmostEqual(panel.breath(panel.BREATH_PERIOD_S), 0.0)
+        self.assertLess(panel.breath(panel.BREATH_PERIOD_S / 4), 0.5)  # gamma : le milieu de la montée reste sombre
+
+    def test_pwm_thread_modulates_and_closes(self):
+        calls = []
+        leds = panel.Leds(lambda rec, ok: calls.append((rec, ok)))
+        leds(0.5, False)
+        time.sleep(0.15)
+        leds.close()
+        self.assertIn((True, False), calls)
+        self.assertIn((False, False), calls)
+        self.assertGreater(len(calls), 10)  # a basculé de nombreuses fois (200 Hz)
+        self.assertEqual(calls[-1], (False, False))  # éteint à la fermeture
+
+    def test_pwm_thread_static_levels_do_not_toggle(self):
+        calls = []
+        leds = panel.Leds(lambda rec, ok: calls.append((rec, ok)))
+        leds(True, False)
+        time.sleep(0.15)
+        leds.close()
+        self.assertIn((True, False), calls)
+        self.assertLess(len(calls), 5)  # niveau fixe : pas de PWM, donc quasiment aucune écriture
+
+
 class FakeClock:
     def __init__(self):
         self.t = 100.0
@@ -309,6 +337,29 @@ class PanelLoopTests(unittest.TestCase):
         self.clock.t += 7200
         p.step()
         self.assertTrue(self.display._on)  # et il reste allumé pendant toute la prise
+
+    def test_ring_breathes_only_while_the_screen_is_asleep_at_rest(self):
+        p = self.make(STATUS_IDLE, sleep_s=60)
+        p.step()
+        self.assertEqual(self.leds[-1][0], False)  # écran allumé au repos : anneau éteint
+        self.clock.t += 120
+        p.step()  # l'écran s'éteint : le fondu part du noir
+        self.assertEqual(self.leds[-1][0], 0.0)
+        levels = []
+        for _ in range(100):
+            self.clock.t += 0.04
+            p.step()
+            levels.append(self.leds[-1][0])
+        self.assertTrue(all(0.0 <= v <= 1.0 for v in levels))
+        self.assertGreater(max(levels), 0.5)  # il monte...
+        self.assertLess(levels[-1], max(levels))  # ...et redescend (4 s = 100 pas de 40 ms)
+        p.status = STATUS_REC
+        p.step()
+        self.assertEqual(self.leds[-1], (True, False))  # une prise : anneau fixe
+        p.status = STATUS_IDLE
+        self.clock.t += 1  # la prise est finie, écran encore allumé 60 s
+        p.step()
+        self.assertEqual(self.leds[-1][0], False)
 
     def test_press_on_a_sleeping_screen_only_wakes_it(self):
         p = self.make(STATUS_IDLE, sleep_s=60)

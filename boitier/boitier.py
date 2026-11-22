@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Génère les fichiers de découpe laser (SVG) du boîtier de l'enregistreur XR18.
 
-Contreplaqué 3 mm, assemblage à queues droites, couvercle démontable par 4 vis M3
+Contreplaqué 5 mm, assemblage à queues droites, couvercle démontable par 4 vis M2,5
 dans des écrous emprisonnés (plots d'angle de 3 couches). Stdlib uniquement.
 
     py boitier/boitier.py                 # -> boitier.svg, couvercle.svg (couvercle seul), essai.svg
@@ -31,19 +31,19 @@ PI_JOUR_AVANT = 0.5            # jeu entre la carte et le mur avant (prise micro
 # La carte repose sur 4 piliers en contreplaqué collés au fond (hauteur = épaisseur T), percés du trou de la vis ;
 # l'écrou est emprisonné dans un trou hexagonal du fond (il ne tourne pas), inséré par le dessous.
 PI_TROUS = [(3.5, 3.5), (61.5, 3.5), (3.5, 52.5), (61.5, 52.5)]   # M2,5 (58 x 49)
-PI_TROU_D = 2.4                # trou de la vis M2 dans le pilier (le trou du Pi fait 2,75 : M2 y passe avec du jeu)
-PI_VIS_ECROU_PLATS = 4.2       # écrou M2 : 4,0 mm sur plats + jeu
+PI_TROU_D = 2.7                # trou de la vis M2,5 dans le pilier (le trou du Pi fait 2,75 : M2,5 y passe ajusté)
+PI_VIS_ECROU_PLATS = 5.2       # écrou M2,5 : 5,0 mm sur plats + jeu
 PI_PILIER = 9.0                # côté des piliers carrés
 PI_PCB = 1.4
 
 # Plots d'angle : vis du couvercle dans un écrou emprisonné (alvéole hexagonale) ;
 # n couches percées d'un hexagone + 1 couche pleine percée dessous
-# Tout en M2 (même vis pour le couvercle, le Pi et l'écran) : écrou M2 = 4 mm sur plats, 1,6 mm d'épaisseur
+# Tout en M2,5 (même boulon pour le couvercle, le Pi et l'écran) : écrou M2,5 = 5 mm sur plats, 2 mm d'épaisseur ; rondelle 5,5 mm x 0,5 mm
 PLOT = 12.0
-VIS_D = 2.4                    # trou de passage M2
-ECROU_PLATS = 4.2              # écrou M2 : 4,0 mm sur plats + jeu
-ECROU_H = 1.6                  # épaisseur de l'écrou M2 standard
-VIS_L = 12.0                   # vis du couvercle : traverse le couvercle (T), l'écrou posé au fond de l'alvéole (T) et finit dans la couche du dessous
+VIS_D = 2.7                    # trou de passage M2,5
+ECROU_PLATS = 5.2              # écrou M2,5 : 5,0 mm sur plats + jeu
+ECROU_H = 2.0                  # épaisseur de l'écrou M2,5 standard
+VIS_L = 14.0                   # vis du couvercle : traverse le couvercle (T), l'écrou posé au fond de l'alvéole (T) et finit dans la couche du dessous
 
 # Face avant : bouton (filetage 11,62 mm) à gauche, écran 2,42" (70,1 x 48,1) à droite
 BOUTON_D = 12.0                # filetage mesuré 11,62 mm (22/11/2026) + jeu
@@ -53,7 +53,7 @@ ECRAN_X = 28.0                 # bord gauche du module, depuis la paroi gauche i
 ECRAN_FENETRE = (62.0, 39.0)   # fenêtre vue de face : le verre doit y entrer (mesuré 22/11/2026)
 ECRAN_FENETRE_DECALAGE = (0.0, 0.0)   # décalage de la fenêtre par rapport au centre du module
 ECRAN_TROUS = (64.0, 42.0)     # entraxe des trous du module (À MESURER)
-ECRAN_TROU_D = 2.3             # vis M2 (trou du couvercle)
+ECRAN_TROU_D = 2.7             # vis M2,5 (trou du couvercle)
 
 # Petite carte (transistor + résistances + broches), posée au fond à l'avant gauche : repère gravé
 CARTE_L, CARTE_W = 30.0, 20.0
@@ -223,7 +223,7 @@ def pieces():
     t_court = positions_tenons(N_TENONS_COURT, T, Ey - T)
     P["fond"] = dict(contour=fond_contour(t_long, t_court), trous=trous + fentes, gravure=grav, n=1)
 
-    # Couvercle : 4 vis M3, bouton, fenêtre et 4 vis M2 de l'écran
+    # Couvercle : 4 vis M2,5, bouton, fenêtre et 4 vis M2,5 de l'écran
     cl = []
     for cx in (T + PLOT / 2, Ex - T - PLOT / 2):
         for cy in (T + PLOT / 2, Ey - T - PLOT / 2):

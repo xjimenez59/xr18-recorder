@@ -126,7 +126,7 @@ def dessiner(ax, vue, accessoires):
     if not accessoires:
         return
 
-    # écran : verre noir dans la fenêtre, texte du chronomètre, 4 vis M2
+    # écran : verre noir dans la fenêtre, texte du chronomètre, 4 vis M2,5
     cy_mid = Ey / 2
     ex_c = B.T + B.ECRAN_X + B.ECRAN_L / 2
     fw, fh = B.ECRAN_FENETRE
@@ -152,7 +152,7 @@ def dessiner(ax, vue, accessoires):
     for t in P["couvercle"]["trous"]:
         if isinstance(t, tuple):
             _, cx, cy, r = t
-            if abs(r - B.ECRAN_TROU_D / 2) < 0.01:
+            if abs(r - B.ECRAN_TROU_D / 2) < 0.01 and B.T + B.ECRAN_X < cx < B.T + B.ECRAN_X + B.ECRAN_L:
                 cylindre(ax, vue, cx, cy, zt, zt + 1.2, 1.8, "#303030", zorder=4.2)
             elif abs(r - B.VIS_D / 2) < 0.01:
                 cylindre(ax, vue, cx, cy, zt, zt + 2.0, 3.0, "#4a4f55", bord="#111", zorder=4.2)
